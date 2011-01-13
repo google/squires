@@ -39,7 +39,7 @@ the top level Command() object.
 Please see squires_test.py or example.py for simple usage.
 """
 
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 
 import inspect
 import os
