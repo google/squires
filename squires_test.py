@@ -186,6 +186,13 @@ class CommandsTest(unittest.TestCase):
     cmd.command_line = ['ge-2/3/0']
     self.failUnlessEqual(cmd.GetGroupOption('interface'), 'ge-2/3/0')
 
+  def testWithMethod(self):
+    def MyMethod(*args):
+      """test docstring"""
+    cmd = squires.Command(name='foo', method=MyMethod)
+    self.failUnlessEqual('test docstring',
+                         cmd.help)
+
   def testDisambiguate(self):
     """Test we can disambiguate commands."""
     # Make sure we can get common prefixes.
@@ -456,6 +463,14 @@ class CommandsTest(unittest.TestCase):
     uncompleted = os.path.join(TEST_PATH, 'testdata/', 'file1')
     self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),
                          [os.path.join(TEST_PATH, 'testdata/', 'file1')])
+
+    uncompleted = os.path.join(TEST_PATH, 'testda')
+    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted,
+                                                        only_dirs=True),
+                         [os.path.join(TEST_PATH, 'testdata/')])
+
+    self.failUnlessEqual(self.cmd.options.FileCompleter(
+        'fil', default_path='testdata/'), ['file1'])
 
     uncompleted = os.path.join(TEST_PATH, 'testdata/', 'boo1')
     self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),

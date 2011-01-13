@@ -76,7 +76,8 @@ class Command(dict):
     ancestors: A list of strings, ancestor command names.
     root: A Command() object, the root of the tree.
     runnable: A boolean, if this command can be run itself (ie doesnt require
-      subcommands). If true '<cr>' is shown in the completion list.
+      subcommands). If true '<cr>' is shown in the completion list. If None
+      and a method is supplied, default to True, else False.
     options: A list of Option() objects for this command.
     hidden: A boolean. If True, the command does not show in tab completion.
     command_line: A list of tokens in the current command line.
@@ -90,12 +91,11 @@ class Command(dict):
     execute_command_string: A string, to display as '<cr>' help, if runnable.
   """
 
-  def __init__(self, name='', help='', runnable=False, method=None):
+  def __init__(self, name='', help=None, runnable=None, method=None):
     super(Command, self).__init__(self)
     self.name = name
-    self.help = help
+    self.help = help or ''
     self.root = self
-    self.runnable = runnable
     self.ancestors = []
     self.options = Options()
     self.options.command = self
@@ -105,6 +105,19 @@ class Command(dict):
     self.hidden = False
     self.prompt = '> '
     self.method = method
+
+    if runnable is None:
+      # Set to 'True' if a method is supplied.
+      if self.method is not None:
+        runnable = True
+      else:
+        runnable = False
+    self.runnable = runnable
+
+    # Help string is method docstring by default.
+    if self.method is not None and help is None:
+      if hasattr(method, '__doc__'):
+        self.help = method.__doc__
     self.execute_command_string = 'Execute this command'
     self._orig_ancestors = None
 
@@ -115,7 +128,7 @@ class Command(dict):
     readline.parse_and_bind('?: possible-completions')
     readline.set_completer_delims(' ')
 
-  def AddCommand(self, name, help='', runnable=False, method=None):
+  def AddCommand(self, name, help=None, runnable=None, method=None):
     """Convenience function to add a command to the tree.
 
     Returns the new Command() object, already added to the tree. Options
@@ -647,11 +660,13 @@ class Options(list):
             return option.name
     return ''
 
-  def FileCompleter(self, incomplete):
+  def FileCompleter(self, incomplete, only_dirs=False, default_path=None):
     """Attempts to complete a filename.
 
     Args:
       incomplete: A string, the filename to complete.
+      only_dirs: A boolean. If true, only complete on directories.
+      default_path: A str, the default path (relative to pwd) to complete from.
 
     Returns:
       A list of strings, valid completable filenames.
@@ -659,16 +674,30 @@ class Options(list):
     valid_files = []
     if incomplete == ' ':
       incomplete = ''
+    if default_path:
+      if not default_path.endswith(os.sep):
+        default_path += os.sep
+      incomplete = os.path.join(default_path, incomplete)
     dirname = os.path.dirname(incomplete)
     basename = os.path.basename(incomplete)
     fulldir = os.path.abspath(dirname)
+
     if dirname and not os.path.exists(fulldir):
+      # Directory specified in incomplete and does not exist
       return []
     for dir_file in os.listdir(fulldir):
+      entry = os.path.join(dirname, dir_file)
       if dir_file.startswith(basename):
-        if os.path.isdir(os.path.join(dirname, dir_file)):
-          dir_file += os.path.sep
-        valid_files.append(os.path.join(dirname, dir_file))
+        if os.path.isdir(entry):
+          entry += os.sep
+          valid_files.append(entry)
+        elif not only_dirs:
+          valid_files.append(entry)
+
+    if default_path:
+      valid_files = [entry.replace(default_path, '', 1) for entry in
+                     valid_files]
+
     return valid_files
 
   def GetOptionCompletes(self, line):
@@ -762,7 +791,9 @@ class Options(list):
         completes = {}
         if option.is_path:
           # Path-type options have filenames as the completions
-          valid_files = self.FileCompleter(last_token)
+          valid_files = self.FileCompleter(
+              last_token, only_dirs=option.only_dir_paths,
+              default_path=option.path_dir)
           for fname in valid_files:
             completes[fname] = ''
         else:
@@ -806,7 +837,9 @@ class Options(list):
 
       if option.is_path:
         # Path-type options also have filenames added to the completions
-        valid_files = self.FileCompleter(last_token)
+        valid_files = self.FileCompleter(
+              last_token, only_dirs=option.only_dir_paths,
+              default_path=option.path_dir)
         for fname in valid_files:
           completes[fname] = ''
 
@@ -954,6 +987,9 @@ class Option(object):
         on path.
     only_valid_paths: A boolean, whether the supplied path must be valid and
         already exist (used with is_path)
+    only_dir_paths: A boolean. If True, and is_path is True, only complete
+        on directories.
+    path_dir: A str, the default path to use when is_path is True.
     match: If a string it is a regex to match this option.
         If a list of strings, it is a list or dict of possible values.
         In the case of a dict, keys are the option value, and values are the
@@ -977,7 +1013,8 @@ class Option(object):
 
   def __init__(self, name, boolean=None, keyvalue=False, required=False,
                helptext=None, match=None, default=None, group=None, position=-1,
-               is_path=False, only_valid_paths=False, hidden=False):
+               is_path=False, only_valid_paths=False, hidden=False,
+               only_dir_paths=False, path_dir=None):
     self.name = name
     self.helptext = helptext
     self.boolean = boolean
@@ -986,6 +1023,8 @@ class Option(object):
     self.position = position
     self.default = default
     self.is_path = is_path
+    self.only_dir_paths = only_dir_paths
+    self.path_dir = path_dir
     self.group = group
     self.arg_key = None
     self.arg_val = None
