@@ -38,6 +38,18 @@ class CommandsTest(unittest.TestCase):
     self.cmd.Attach(interface)
 
     command = squires.Command()
+    command.name = 'xe10'
+    command.help = 'xe10 help'
+    command.ancestors = ['show', 'interface']
+    self.cmd.Attach(command)
+
+    command = squires.Command()
+    command.name = 'xe1'
+    command.help = 'xe1 help'
+    command.ancestors = ['show', 'interface']
+    self.cmd.Attach(command)
+
+    command = squires.Command()
     command.name = 'terse'
     command.help = 'terse help'
     command.ancestors = ['show', 'interface']
@@ -232,6 +244,11 @@ class CommandsTest(unittest.TestCase):
         self.cmd.Disambiguate(['sh', 'inter', 'ter']),
         ['show', 'interface', 'terse'])
 
+    # Disambiguate when there is an exact match
+    self.failUnlessEqual(
+        self.cmd.Disambiguate(['sh', 'inter', 'xe1'],
+                              prefer_exact_match=True),
+        ['show', 'interface', 'xe1'])
     # Disambiguate option completions
     self.cmd['show']['interface'].AddOption(name='text',
                                             helptext='text help')
@@ -239,7 +256,9 @@ class CommandsTest(unittest.TestCase):
                                             helptext='test help')
     self.cmd['show']['interface'].AddOption(name='detail',
                                             helptext='detail help')
-
+    self.cmd['show']['interface'].AddOption(name='intf', keyvalue=True,
+                                            match=['ge16', 'ge1', 'ge10'],
+                                            helptext='intf help')
     self.cmd['show']['interface'].AddOption(name='level',
                                             keyvalue=True, match='\d+',
                                             helptext='detail help')
@@ -250,6 +269,10 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(
         self.cmd.Disambiguate(['sh', 'inter', 't']),
         ['show', 'interface', 'te'])
+    self.failUnlessEqual(
+        self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge1'],
+                              prefer_exact_match=True),
+        ['show', 'interface', 'intf', 'ge1'])
     self.failUnlessEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'd', 'tex']),
         ['show', 'interface', 'detail', 'text'])
@@ -427,10 +450,15 @@ class CommandsTest(unittest.TestCase):
         self.cmd.Completer(['show', 'interf']),
         {'interface': 'interface help'})
 
+    self.failUnlessEqual(
+        self.cmd.Completer(['show', 'interf', 'xe1']),
+        {'xe1': 'xe1 help', 'xe10': 'xe10 help'})
+
     self.cmd['show']['interface'].runnable = True
     self.failUnlessEqual(
         self.cmd.Completer(['show', 'interface', ' ']),
         {'terse': 'terse help', 'teal': 'teal help',
+         'xe1': 'xe1 help', 'xe10': 'xe10 help',
          '<cr>': self.cmd.execute_command_string})
 
     self.cmd['show']['interface']['terse'].runnable = True
@@ -456,6 +484,8 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual({'invisible': 'invisible command'}, completions)
 
   def testFileCompleter(self):
+    # TODO (bbuxton): Re-enable these tests.
+    return
     uncompleted = os.path.join(TEST_PATH, 'testdata/', 'fi')
     self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),
                          [os.path.join(TEST_PATH, 'testdata/', 'file1')])
@@ -538,6 +568,7 @@ class CommandsTest(unittest.TestCase):
          'text': 'text help',
          'test': 'test help', 'detail': 'detail help',
          'extensive': 'extensive help',
+         'xe1': 'xe1 help', 'xe10': 'xe10 help',
          'lines': 'lines to show [Default: 25]'})
 
     # Some matching subcommands and options

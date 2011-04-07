@@ -351,7 +351,7 @@ class Command(dict):
       A string, the longest match prefix.
     """
     common = ''
-    for i in xrange(len(words[0])):
+    for i in xrange(len(words[0]) + 1):
       prefix = words[0][:i]
       for w in words:
         if not w.startswith(prefix):
@@ -359,7 +359,7 @@ class Command(dict):
       common = prefix
     return common
 
-  def Disambiguate(self, command):
+  def Disambiguate(self, command, prefer_exact_match=False):
     """Disambiguates a command, by expanding elements.
 
     For example: ['sh'] -> ['show']
@@ -375,6 +375,8 @@ class Command(dict):
 
     Args:
       command: A list of strings, tokens of current command line.
+      prefer_exact_match: A boolean, if there is an exact match then
+        return that instead of a common prefix.
 
     Returns:
       A list, where the tokens are disambiguated. If
@@ -386,6 +388,10 @@ class Command(dict):
     matches = []
     # Attempt to look for valid subcommands
     for candidate in self:
+      if prefer_exact_match and candidate == command[0].lower():
+        # An exact match short-circuits the search.
+        matches = [candidate]
+        break
       if candidate.startswith(command[0].lower()):
         matches.append(candidate)
 
@@ -396,7 +402,8 @@ class Command(dict):
     elif len(matches) == 1:
       # One match, disambiguate subcommands.
       if len(command) > 1:
-        submatches = self[matches[0]].Disambiguate(command[1:])
+        submatches = self[matches[0]].Disambiguate(
+            command[1:], prefer_exact_match)
         #if not submatches:
         #  return None
         matches.extend(submatches)
@@ -505,7 +512,7 @@ class Command(dict):
     """
 
     # Expand the command line out.
-    self.command_line = self.Disambiguate(command)
+    self.command_line = self.Disambiguate(command, prefer_exact_match=True)
 
     # If command line is empty at this point, or the next option
     # is not a valid subcommand, we run it locally.
@@ -1121,10 +1128,18 @@ class Option(object):
         elif self.matchtype in ('list', 'dict'):
           # Hunt through each possibility in 'match' and return
           # true if one of them matches.
+          found_close_match = False
           for value in self.match:
-            if value.startswith(token):
+            if value == token:
               self._matching_token = value
               return True
+            if value.startswith(token) and not found_close_match:
+              # The "closest" is the first token we find if we don't
+              # find an exact match.
+              self._matching_token = value
+              found_close_match = True
+          if found_close_match:
+            return True
           return False
       elif self.name.lower().startswith(token.lower()):
         return True
