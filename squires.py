@@ -119,7 +119,7 @@ class Command(dict):
       if hasattr(method, '__doc__'):
         self.help = method.__doc__
     self.execute_command_string = 'Execute this command'
-    self._orig_ancestors = None
+    self._orig_ancestors = []
 
   def PrepareReadline(self):
     """Prepares readline for our use."""
@@ -206,23 +206,26 @@ class Command(dict):
       self.writer.Log('%s%s\n' % (self.prompt, line))
 
     try:
-      # Disable completer so a 'Run' method that uses 'raw_input' wont
-      # autocomplete on the squires commands.
-      readline.set_completer(None)
-      try:
-        self.Execute(shlex.split(line))
-      except:
-        # Work around lack of 'finally' in 2.4
-        readline.set_completer(self.ReadlineCompleter)
-        raise
-      readline.set_completer(self.ReadlineCompleter)
+      split_line = shlex.split(line)
     except ValueError, e:
-      if str(e) == 'No closing quotation':
-        print '%% %s' % e
-      else:
-        print traceback.print_exc(file=sys.stdout)
-    except (KeyError, IndexError, AttributeError, TypeError), e:
-      print traceback.print_exc(file=sys.stdout)
+      print '%% %s' % e
+      return
+
+    # Disable completer so a 'Run' method that uses 'raw_input' wont
+    # autocomplete on the squires commands.
+    readline.set_completer(None)
+    # Work around lack of 'finally' in 2.4
+    try:
+      self.Execute(split_line)
+    except (KeyboardInterrupt, EOFError), e:
+      # Catch ctrl-c and eof and pass up
+      readline.set_completer(self.ReadlineCompleter)
+      raise
+    except Exception, e:
+      # Other exceptions whilst running command have trace
+      # printed, then back to the prompt.
+      traceback.print_exc(file=sys.stdout)
+    readline.set_completer(self.ReadlineCompleter)
 
   def ReadlineCompleter(self, unused_word, state):
     """Readline completion handler.
@@ -261,7 +264,7 @@ class Command(dict):
           candidate_words = candidates.keys()
           candidate_words.sort()
           for candidate in candidate_words:
-            print ' %-21s %s' % (candidate, candidates[candidate])
+            print ' %-21s %s' % (candidate, candidates[candidate] or '')
           print self.prompt + readline.get_line_buffer(),
           complete_string = self._GetCommonPrefix(candidate_words)
           if complete_string.startswith('<'):
@@ -272,7 +275,7 @@ class Command(dict):
         return complete_string
       return None
     except:
-      print '\n%s' % traceback.print_exc(file=sys.stdout)
+      print '\n%s' % traceback.format_exc()
 
   def Completer(self, current_line):
     """Completion handler.
@@ -309,26 +312,33 @@ class Command(dict):
     self.command_line = current_line
     line = self.Disambiguate(current_line)
 
-    # If this is a subcommand, pass down.
-    if (len(line) > 1 and
-        (line[0].lower() in self or line[0] in self)):
-      return self[line[0].lower()].Completer(line[1:])
-
     candidates = {}
 
-    # Return completions for this object.
-    for subcommand in self.values():
-      if subcommand.hidden and not SHOW_HIDDEN:
-        continue
-      if (line == [' '] or
-          not line or
-          subcommand.name.lower().startswith(line[0].lower())):
-        candidates[subcommand.name] = subcommand.help
+    # Examine subcommands for completions.
+    for name, subcommand in self.iteritems():
+      if subcommand._Matches(line):
+        if len(line) > 1:
+          # A line with more elements here is passed to
+          # the first match.
+          return subcommand.Completer(line[1:])
+        elif not subcommand.hidden or SHOW_HIDDEN:
+          # Or add non-hidden commands to the help options.
+          candidates[name] = subcommand.help
 
     # Add completions for options
     candidates.update(self.options.GetOptionCompletes(line))
 
     return candidates
+
+  def _Matches(self, line):
+    """Returns a boolean, whether the line matches this command.
+
+    A match is either the line's first element maching our name,
+    or the line being empty (meaning, ask for all possible commands).
+    """
+    if line == [' '] or not line:
+      return True
+    return self.name.startswith(line[0].lower())
 
   def AddOption(self, name, **kwargs):
     """Adds an option to this command.
@@ -385,7 +395,7 @@ class Command(dict):
     if not command:
       return []
 
-    matches = []
+    matches = []  # List of candidate sub-commands
     # Attempt to look for valid subcommands
     for candidate in self:
       if prefer_exact_match and candidate == command[0].lower():
@@ -440,9 +450,7 @@ class Command(dict):
         command = command[key]
       except KeyError:
         # Ancestor not found, create it and add it.
-        cmd = Command()
-        cmd.name = key
-        cmd.help = command_object.help
+        cmd = Command(name=key, help=command_object.help)
         cmd.ancestors = command_object.ancestors[:idx]
         cmd._busy = True  # Loop prevention
         if self.name != '<root>':
@@ -707,6 +715,15 @@ class Options(list):
 
     return valid_files
 
+  def _GetRequiredGroups(self):
+    """Returns required groups in this option set."""
+    required_groups = set()
+    # Build a list of required option groups.
+    for option in self:
+      if option.group and option.required:
+        required_groups.add(option.group)
+    return required_groups
+
   def GetOptionCompletes(self, line):
     """Fetches option completions.
 
@@ -732,10 +749,7 @@ class Options(list):
 
     seen_groups = set()
     has_required = True
-    required_groups = set()
-    for option in self:
-      if option.group and option.required:
-        required_groups.add(option.group)
+    required_groups = self._GetRequiredGroups()
 
     found_options = []
 
@@ -859,9 +873,9 @@ class Options(list):
     # and there is a word under the cursor.
     if last_token and last_token != ' ':
       freeform_options = []
-      for cmd in completes:
-        if cmd.startswith('<'):
-          freeform_options.append(cmd)
+      for candidate in completes:
+        if candidate.startswith('<'):
+          freeform_options.append(candidate)
       if len(freeform_options) != len(completes):
         for option in freeform_options:
           del completes[option]
@@ -883,12 +897,9 @@ class Options(list):
     Returns:
       bool, whether all options are valid.
     """
-    missing_groups = set()
     missing_options = set()
-    # Build a list of required groups.
-    for option in self:
-      if option.group and option.required:
-        missing_groups.add(option.group)
+    # All required are missing until they are seen.
+    missing_groups = self._GetRequiredGroups()
 
     group_dupes = set()
     found_options = []
