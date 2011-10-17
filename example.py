@@ -190,7 +190,7 @@ def main(unused_argv):
 
   look = cmd_tree.AddCommand('look', help='Take a look around the room',
                              runnable=True, method=adventure.Look)
-  look.AddOption('<direction>', helptext='Look a specific direction',
+  look.AddOption('direction', helptext='Look a specific direction',
                  boolean=False, match='\w')
 
   walk = cmd_tree.AddCommand('walk', help='Walk somewhere',

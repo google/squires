@@ -17,6 +17,7 @@
 import os
 import unittest
 
+import option_lib
 import squires
 
 TEST_PATH = '.'
@@ -116,39 +117,6 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual('Write file', self.cmd['write']['file'].help)
     self.failUnlessEqual('logs', self.cmd['write']['file']['logs'].name)
     self.assertEqual(1, len(self.cmd['write']['file'].options))
-
-  def testOption(self):
-    """Test the Option() class."""
-    option = squires.Option(name='foo', helptext='bar')
-    # Make sure Match picks up variants of the name
-    # throughout the command line.
-    self.failUnless(option.Match(['foo'], None))
-    self.failUnless(option.Match(['foo', 'bar'], None))
-    self.failUnless(option.Match(['bar', 'foo'], None))
-    self.failUnless(option.Match(['fo'], None))
-    self.failUnless(option.Match(['f'], None))
-    self.failUnless(option.Match(['f', 'bar'], None))
-    self.failUnless(option.Match(['bar', 'f'], None))
-    self.failIf(option.Match(['baz'], None))
-    self.failIf(option.Match(['baz', 'bar'], None))
-
-    # Do the same for regex match based non-boolean options.
-    option = squires.Option(name='<aid>', boolean=False,
-                            match='\d[a-z]\d', helptext='bar')
-    self.failUnlessEqual(option.Match(['2e2'], None), '2e2')
-    self.failUnlessEqual(option.Match(['foobar', '2e2'], None), '2e2')
-    self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), '2e2')
-    self.failUnlessEqual(option.Match(['e2e'], None), None)
-    self.failUnlessEqual(option.Match(['e2e', 'foo'], None), None)
-
-    # And boolean regex based options.
-    option = squires.Option(name='<aid>', boolean=True,
-                            match='\d[a-z]\d', helptext='bar')
-    self.failUnlessEqual(option.Match(['2e2'], None), True)
-    self.failUnlessEqual(option.Match(['foobar', '2e2'], None), True)
-    self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), True)
-    self.failUnlessEqual(option.Match(['e2e'], None), None)
-    self.failUnlessEqual(option.Match(['e2e', 'foo'], None), None)
 
   def testPositionalOption(self):
     cmd = self.cmd['show']['interface']
@@ -347,7 +315,7 @@ class CommandsTest(unittest.TestCase):
 
     self.assertEqual(command.options[1], command.options[0].arg_val)
     self.assertEqual(command.options[0], command.options[1].arg_key)
-    self.assertTrue(command.options[0].match is None)
+    self.assertTrue(command.options[0].matcher.MATCH == 'boolean')
 
     self.assertTrue(command.options[0].Matches(['has', 'lines', '30'], 1))
     self.assertTrue(command.options[1].Matches(['has', 'lines', '30'], 2))

@@ -49,6 +49,8 @@ import shlex
 import sys
 import traceback
 
+import option_lib
+
 
 SHOW_HIDDEN = False  # Force display of hidden commands and options.
 
@@ -65,6 +67,10 @@ class AmbiguousError(Error):
   pass
 
 
+class NoMatchError(Error):
+  """Subcommand did not match."""
+
+
 class Command(dict):
   """An element on the command tree.
 
@@ -78,7 +84,7 @@ class Command(dict):
     runnable: A boolean, if this command can be run itself (ie doesnt require
       subcommands). If true '<cr>' is shown in the completion list. If None
       and a method is supplied, default to True, else False.
-    options: A list of Option() objects for this command.
+    options: A list of option.Option() objects for this command.
     hidden: A boolean. If True, the command does not show in tab completion.
     command_line: A list of tokens in the current command line.
     logfile: A string, logfile to write output to. Only valid for the top
@@ -419,25 +425,7 @@ class Command(dict):
         matches.extend(submatches)
       return matches
     else:  # No match, try options. Exclude '<> completes.
-      newcommand = list(command)
-      index = 0
-      while index < len(command):
-        word = command[index]
-        candidates = []
-        for option in self.options:
-          if option.Matches(command, index):
-            if option.name.startswith('<'):
-              candidates.append(word)
-            else:
-              if option.boolean:
-                candidates.append(option.name)
-              else:
-                candidates.append(option.Match(command, index))
-        if len(candidates) != 1:
-          break
-        newcommand[index] = candidates[0]
-        index += 1
-      return newcommand
+      return self.options.Disambiguate(list(command))
 
   def _AddAncestors(self, command_object):
     """Ensure all ancestors are present in the command tree."""
@@ -456,6 +444,7 @@ class Command(dict):
         if self.name != '<root>':
           cmd.ancestors.extend(self.name)
         self.Attach(cmd)
+        command = command[key]
 
   def Attach(self, command_object):
     """Attaches a Command() object to the tree.
@@ -592,7 +581,7 @@ class Options(list):
         raise ValueError(
             'With "keyvalue", one of "match" or "is_path" must be set.')
 
-    option = Option(**kwargs)
+    option = option_lib.Option(**kwargs)
     self.append(option)
 
     if option.keyvalue:
@@ -600,22 +589,24 @@ class Options(list):
       kwargs['boolean'] = False
       kwargs['is_path'] = path
       kwargs['name'] = '<' + option.name + '__arg>'
-      optionv = Option(**kwargs)
-      option.arg_val = optionv
+      optionv = option_lib.Option(**kwargs)
+
       optionv.arg_key = option
-      option.default = default
       optionv.default = default
-      optionv.hidden = False  # Tab complete on the arg
+      optionv.hidden = False  # Always tab complete on the arg
+
+      option.arg_val = optionv
+      option.default = default
       self.append(optionv)
 
-    # Now re-order the options so that match ones come last.
+    # Now re-order the options so that non-boolean ones come last.
     options = Options()
     options.command = self.command
     for option in self:
-      if option.match is None:
+      if option.matcher.MATCH == 'boolean':
         options.append(option)
     for option in self:
-      if option.match is not None:
+      if option.matcher.MATCH != 'boolean':
         options.append(option)
     self[:] = options
 
@@ -640,6 +631,7 @@ class Options(list):
           # Matched earlier, skip.
           continue
         if option.Matches(command_line, tok_index):
+          # Found our option
           found_tokens.append(tok_index)
           if option.name == option_name:
             if option.arg_val is not None:
@@ -647,7 +639,7 @@ class Options(list):
               return option.arg_val.Match(command_line, tok_index+1)
             return option.Match(command_line, tok_index)
       # Option not on command line. If is has default, return that.
-      if option.name == option_name and option.default and option.arg_val:
+      if option.name == option_name and option.default:
         return option.default
     return None
 
@@ -669,51 +661,60 @@ class Options(list):
       if option.group == group:
         value = self.GetOption(command_line, option.name)
         if value:
-          if option.match is not None:
-            return value
-          else:
+          if option.matcher.MATCH == 'boolean':
+            # Return the _name_ of boolean options.
             return option.name
+          else:
+            return value
     return ''
 
-  def FileCompleter(self, incomplete, only_dirs=False, default_path=None):
-    """Attempts to complete a filename.
+  def Disambiguate(self, command):
+    """Disambiguate options in the command line.
 
-    Args:
-      incomplete: A string, the filename to complete.
-      only_dirs: A boolean. If true, only complete on directories.
-      default_path: A str, the default path (relative to pwd) to complete from.
+    Similar to Command.Disambiguate, but the supplied 'command'
+    should contain only options.
 
     Returns:
-      A list of strings, valid completable filenames.
+      A list, where the tokens are disambiguated. If
+      ambiguous, returns the supplied 'command'
     """
-    valid_files = []
-    if incomplete == ' ':
-      incomplete = ''
-    if default_path:
-      if not default_path.endswith(os.sep):
-        default_path += os.sep
-      incomplete = os.path.join(default_path, incomplete)
-    dirname = os.path.dirname(incomplete)
-    basename = os.path.basename(incomplete)
-    fulldir = os.path.abspath(dirname)
+    newcommand = list(command)
+    index = 0
+    # For each word in the original command line, add the
+    # full name for its matching option to the new command line.
+    while index < len(command):
+      word = command[index]
+      candidates = []
+      for option in self:
+        # Look through options. Any that match the current word
+        # are added to candidates.
+        if option.Matches(command, index):
+          if option.matcher.MATCH == 'regex':
+            candidates.append(word)
+          else:
+            if option.boolean:
+              candidates.append(option.name)
+            else:
+              matches = option.GetMatches(word)
+              #candidates.append(option.Match(command, index))
+              candidates.extend(matches.keys())
+      if len(candidates) != 1:
+        # Skip out of completion if less or more than one option matches.
+        break
+      # Expanded command line is built with uniquely matching
+      # options.
+      newcommand[index] = candidates[0]
+      index += 1
+    return newcommand
 
-    if dirname and not os.path.exists(fulldir):
-      # Directory specified in incomplete and does not exist
-      return []
-    for dir_file in os.listdir(fulldir):
-      entry = os.path.join(dirname, dir_file)
-      if dir_file.startswith(basename):
-        if os.path.isdir(entry):
-          entry += os.sep
-          valid_files.append(entry)
-        elif not only_dirs:
-          valid_files.append(entry)
-
-    if default_path:
-      valid_files = [entry.replace(default_path, '', 1) for entry in
-                     valid_files]
-
-    return valid_files
+  def _GetRequiredGroups(self):
+    """Returns required groups in this option set."""
+    required_groups = set()
+    # Build a list of requird option groups.
+    for option in self:
+      if option.group and option.required:
+        required_groups.add(option.group)
+    return required_groups
 
   def _GetRequiredGroups(self):
     """Returns required groups in this option set."""
@@ -802,67 +803,39 @@ class Options(list):
       if last_token != ' ' and not option.Matches(line, len(line) - 1):
         # No match for this option (unless no token is present)
         continue
-      if '__arg' in option.name and option.arg_key is not None:
+      if option.arg_val is not None and last_token == ' ':
+        # We have the 'key' of a keyvalue option, but we are at EOL. As a
+        # result, we cant yet assume all options are present.
+        has_required = False
+      if option.arg_key is not None:
         # We have the value of a key/value option. Check the previous token
         # is the key and is valid, then add this option as the only completion.
         if len(line) < 2 or not option.arg_key.Matches(line, len(line) - 2):
           # Line too short or previous token doesnt match
           continue
         # Reset all completes, as we only want whetever matches the keyvalue.
-        completes = {}
-        if option.is_path:
-          # Path-type options have filenames as the completions
-          valid_files = self.FileCompleter(
-              last_token, only_dirs=option.only_dir_paths,
-              default_path=option.path_dir)
-          for fname in valid_files:
-            completes[fname] = ''
+        if option.matcher.MATCH in ['list', 'dict', 'path', 'method']:
+          completes = option.GetMatches(last_token)
+          if len(completes) != 1:
+            # single value of keyvalue not present
+            has_required = False
         else:
-          if option.matchtype in ['list', 'dict']:
-            for value in option.match:
-              if last_token == ' ' or value.startswith(last_token):
-                if option.matchtype == 'list':
-                  completes[value] = ''
-                else:
-                  completes[value] = option.match[value]
-            if len(completes) != 1:
-              # single value of keyvalue not present
-              has_required = False
-          else:
-            key = option.name.replace('__arg', '')
-            completes = {key: option.helptext}
-            if option.default:
-              completes[key] += ' [Default: %s]' % option.default
+          key = option.name.replace('__arg', '')
+          completes = {key: option.helptext}
+          if option.default:
+            completes[key] += ' [Default: %s]' % option.default
+
         break
 
-      if not option.keyvalue and option.matchtype in ('list', 'dict'):
-        # Look for completes of non-keyvalue list/dict types
-        if option.Matches(line, len(line)-1):
-          # If we have a match, add the full value to the completion
-          completes[option.Match(line, len(line)-1)] = ''
-        else:
-          # Or add all possible matches to completion list.
-          for val in option.match:
-            if option.matchtype == 'list':
-              completes[val] = ''
-            else:
-              completes[val] = option.match[val]
-            if option.default and not option.required:
-              # Mark any match option that is default.
-              completes[option.default] = '[Default]'
+      if option.matcher.MATCH == 'regex':
+        # Regex completes show '<option_name>'
+        completes['<%s>' % option.name] = option.helptext
       else:
-        completes[option.name] = option.helptext
+        # Others show the actual valid strings.
+        completes.update(option.GetMatches(last_token))
 
       if option.default and option.name in completes:
         completes[option.name] += ' [Default: %s]' % option.default
-
-      if option.is_path:
-        # Path-type options also have filenames added to the completions
-        valid_files = self.FileCompleter(
-              last_token, only_dirs=option.only_dir_paths,
-              default_path=option.path_dir)
-        for fname in valid_files:
-          completes[fname] = ''
 
     # Add <cr> to to options if the command is runnable, any/all options are
     # supplied, and there is no word under the cursor.
@@ -901,7 +874,9 @@ class Options(list):
     # All required are missing until they are seen.
     missing_groups = self._GetRequiredGroups()
 
+    # Duplicate options in a group.
     group_dupes = set()
+
     found_options = []
     # All tokens are unknown. We will remove them as we find known ones.
     unknown_tokens = list(command)
@@ -909,12 +884,22 @@ class Options(list):
     # Now go through each option.
     for option in self:
       found_option = False
+      # Go through command line to find the option.
       for token_index, token in enumerate(command):
         if (token_index in matched_tokens or not
             option.Matches(command, token_index)):
+          # Token already matched, or doesnt match.
           continue
-        # If option has keyvalue key, make sure it
-        # matches previous token.
+        # Fetch all matching variants of this option.
+        matches = option.GetMatches(token)
+        if len(matches) != 1 and token not in matches:
+          # This is skipped if the token is an exact match
+          print '%% Multiple matches for "%s" argument "%s":' % (
+              option.name, token)
+          for arg in matches.keys():
+            print ' %s' % arg
+          return False
+        # If option is a keyvalue key, make sure itmatches previous token.
         if option.arg_key is not None:
           if not option.arg_key.Matches(command, token_index-1):
             continue
@@ -942,7 +927,18 @@ class Options(list):
             print '%% Argument for option "%s" ' 'missing.' % option.name
             return False
           if not option.arg_val.Matches(command, token_index+1):
-            print '%% Invalid argument for option "%s".' % option.name
+            print '%% Invalid argument for option "%s".' % option.name,
+            if option.arg_val.matcher.reason:
+              print option.arg_val.matcher.reason
+            else:
+              print
+            return False
+          matches = option.arg_val.GetMatches(command[token_index+1])
+          if len(matches) != 1:
+            print '%% Multple matches for "%s" argument "%s":' % (
+                option.name, command[token_index+1])
+            for arg in matches.keys():
+              print ' %s' % arg
             return False
         # Required group option
         if option.required and option.group:
@@ -982,204 +978,3 @@ class Options(list):
           print '%% Missing one of: %s' % ', '.join(groupoptions)
       return False
     return True
-
-
-class Option(object):
-  """An option to a command.
-
-  This represents a local option that merely affects the
-  behaviour of the command, Eg 'terse' for 'show interface'
-  would be an option.
-
-  Attributes:
-    name: A string, the name of the option as presented in help.
-    helptext: A string, textual help string, one line.
-    boolean: A boolean, whether the option is a boolean option. If
-        None, then will be 'True' if 'match' is None, else False.
-    keyvalue: A boolean. If True, the option is a 'key/value' option
-        where the name is supplied, followed by the value as the
-        next token.
-    default: A string. The default value. Only valid for keyvalue options.
-    required: A boolean, if this is a required option or group.
-    is_path: A boolean, if this option is a path name. Will tab-complete
-        on path.
-    only_valid_paths: A boolean, whether the supplied path must be valid and
-        already exist (used with is_path)
-    only_dir_paths: A boolean. If True, and is_path is True, only complete
-        on directories.
-    path_dir: A str, the default path to use when is_path is True.
-    match: If a string it is a regex to match this option.
-        If a list of strings, it is a list or dict of possible values.
-        In the case of a dict, keys are the option value, and values are the
-          associated helpstring.
-        If not supplied, or empty, matches against 'name'.
-        If it is a function pointer, the function is executed at every
-          match request call (with this option instance as the only arg), and
-          the returned value is used in evaluation, per above.
-    matchtype: A string. If 're', a regex match. If 'list' a list match.
-    group: A string, if not None, only one of the options with the same
-        group may be supplied in a command line.
-    position: An int, positional option location. If -1, option
-        is not positional.
-    hidden: A boolean, if True, the option does not tab complete. Note that the
-        'value' of a keyvalue option will tab complete when the key is supplied.
-    arg_key: An Option(), the 'key' option of a key/value option pair. Used
-        internally by Squires.
-    arg_val: An Option(), the 'value' option of a key/value option pair. Used
-        internally by Squires.
-  """
-
-  def __init__(self, name, boolean=None, keyvalue=False, required=False,
-               helptext=None, match=None, default=None, group=None, position=-1,
-               is_path=False, only_valid_paths=False, hidden=False,
-               only_dir_paths=False, path_dir=None):
-    self.name = name
-    self.helptext = helptext
-    self.boolean = boolean
-    self.keyvalue = keyvalue
-    self.required = required
-    self.position = position
-    self.default = default
-    self.is_path = is_path
-    self.only_dir_paths = only_dir_paths
-    self.path_dir = path_dir
-    self.group = group
-    self.arg_key = None
-    self.arg_val = None
-    self.hidden = hidden
-    self._index = 0
-    if self.is_path:
-      if self.boolean:
-        raise ValueError(
-            'boolean is mutually exclusive from is_path.')
-      if match is None:
-        match = '.*'
-      self.boolean = False
-      self.only_valid_paths = only_valid_paths
-    if match:
-      if is_path and not self.keyvalue and self.position < 0:
-        raise ValueError(
-            'With is_path, position or keyvalue must be supplied')
-      if isinstance(match, str):
-        self._match = re.compile('^%s' % match, re.I)
-      else:
-        self._match = match
-      if self.boolean is None:
-        self.boolean = False
-    else:
-      self._match = None
-      if self.boolean is None:
-        self.boolean = True
-
-  @property
-  def matchtype(self):
-    """Get the type of Option match.
-
-      Returns: A string, the option match type.
-    """
-    match = self.match
-    if isinstance(match, (set, tuple, list)):
-      mtype = 'list'
-    elif isinstance(match, dict):
-      mtype = 'dict'
-    elif '_sre.SRE_Pattern' in repr(match):
-      mtype = 're'
-    else:
-      mtype = None
-    return mtype
-
-  @property
-  def match(self):
-    """Returns the match object, executing a function if needed."""
-    if inspect.isroutine(self._match):
-      try:
-        ret = self._match(self)
-        if isinstance(ret, str):
-          ret = re.compile(ret, re.I)
-        return ret
-      except AttributeError:
-        return None
-    return self._match
-
-  def Matches(self, command, position=None):
-    """Determine if this option matches the command string.
-
-    Args:
-      command: A list of strings, the options on the command line.
-      position: An int, the position in the command to look for
-        a match. If None, all positions are checked. Zero indexed.
-
-    Returns:
-      A boolean, whether there is a match.
-    """
-    # Loop through all tokens on the command line, looking for
-    # matches. Once we have a definitive match/no match, return
-    # the boolean.
-    for self._index, token in enumerate(command):
-      if self.position > -1 and position != self.position:
-        # Position required by option but does not match, skip.
-        continue
-      if position is not None and self._index != position:
-        # Position required by arg but does not match, skip.
-        continue
-      elif self._match is not None:
-        if self.arg_key is not None:
-          # If this is a keyvalue arg
-          if not self.arg_key.Matches(command, self._index-1):
-            # Previous token must be the corresponding key.
-            continue
-        if self.matchtype == 're':
-          if self.match.match(token):
-            return True
-          elif self.arg_key is not None:
-            # Return false if keyvalue key matches, but arg
-            # doesnt.
-            return False
-          # Otherwise continue to next token.
-        elif self.matchtype in ('list', 'dict'):
-          # Hunt through each possibility in 'match' and return
-          # true if one of them matches.
-          found_close_match = False
-          for value in self.match:
-            if value == token:
-              self._matching_token = value
-              return True
-            if value.startswith(token) and not found_close_match:
-              # The "closest" is the first token we find if we don't
-              # find an exact match.
-              self._matching_token = value
-              found_close_match = True
-          if found_close_match:
-            return True
-          return False
-      elif self.name.lower().startswith(token.lower()):
-        return True
-
-    return False
-
-  def Match(self, command, position=None):
-    """Attempt to match this option in the command string.
-
-    Args:
-      command: A list of strings or a string, the command line's options.
-      position: An int, the position in the command line. If None,
-        searches the whole command line.
-
-    Returns:
-      If the option is a boolean option, returns True if matched,
-      else returns None. Else returns the actual matching string, if
-      one found, else the empty string.
-    """
-    if isinstance(command, str):
-      command = [command]
-    if not self.Matches(command, position=position):
-      return None
-    elif self.match is not None:
-      if self.matchtype == 're':
-        return self.boolean or command[self._index]
-      else:
-        return self._matching_token
-    elif self.match is None:
-      return self.boolean or self.name
-
-    return None
