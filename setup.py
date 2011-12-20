@@ -32,4 +32,4 @@ setup(name='squires',
           'Operating System :: OS Independent',
           'Topic :: Software Development :: User Interfaces',
           'Topic :: Software Development :: Libraries'],
-      py_modules=['squires'])
+      py_modules=['squires', 'option_lib', 'pipe'])

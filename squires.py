@@ -33,26 +33,31 @@ will run 'terse's 'Run' method.
 
 Alternatively, for interactive use, just call '<class>.Prompt()'
 and a line will be read with readline completion, and then
-executed. Before doing this, you must call PrepareReadline() on
-the top level Command() object.
+executed.
 
 Please see squires_test.py or example.py for simple usage.
 """
 
-__version__ = '0.9.1'
+__version__ = '0.9.9'
 
 import inspect
 import os
 import re
-import readline
 import shlex
 import sys
 import traceback
 
 import option_lib
+import pipe
+import readline
+COMPLETE_SUFFIX = ' '  # Builtin readline needs a suffix.
 
 
 SHOW_HIDDEN = False  # Force display of hidden commands and options.
+
+# Character used as a pipe to split command line
+PIPE_CHAR = pipe.PIPE_CHAR
+
 
 class Error(Exception):
   pass
@@ -74,27 +79,27 @@ class NoMatchError(Error):
 class Command(dict):
   """An element on the command tree.
 
-  Keys are subcommands, values are instances of Command.
+  Keys are subcommand names, values are instances of Command.
 
   Attributes:
     name: A string, the name of this command.
     help: A string, the help string for this command.
     ancestors: A list of strings, ancestor command names.
     root: A Command() object, the root of the tree.
+    parent: A Command() object, the parent command of this command.
     runnable: A boolean, if this command can be run itself (ie doesnt require
       subcommands). If true '<cr>' is shown in the completion list. If None
       and a method is supplied, default to True, else False.
     options: A list of option.Option() objects for this command.
     hidden: A boolean. If True, the command does not show in tab completion.
     command_line: A list of tokens in the current command line.
-    logfile: A string, logfile to write output to. Only valid for the top
-      level command.
-    writer: A file like object, the above file. Only valid for the top
-      level command.
     prompt: A string, the command prompt to display. Only valid for the top
       level command.
     method: A method, called from within Run(), unless Run() is overridden.
     execute_command_string: A string, to display as '<cr>' help, if runnable.
+    orig_ancestors: A list of strings, ancestors of this command.
+    pipetree: A Command(), root of tree after a pipe. If none, there is
+      no piping.
   """
 
   def __init__(self, name='', help=None, runnable=None, method=None):
@@ -102,15 +107,15 @@ class Command(dict):
     self.name = name
     self.help = help or ''
     self.root = self
+    self.parent = None
     self.ancestors = []
     self.options = Options()
     self.options.command = self
     self.command_line = []
-    self.logfile = None
-    self.writer = None
     self.hidden = False
     self.prompt = '> '
     self.method = method
+    self.pipetree = None
 
     if runnable is None:
       # Set to 'True' if a method is supplied.
@@ -125,16 +130,13 @@ class Command(dict):
       if hasattr(method, '__doc__'):
         self.help = method.__doc__
     self.execute_command_string = 'Execute this command'
-    self._orig_ancestors = []
+    self.orig_ancestors = []
 
   def PrepareReadline(self):
-    """Prepares readline for our use."""
-    readline.set_completer(self.ReadlineCompleter)
-    readline.parse_and_bind('tab: complete')
-    readline.parse_and_bind('?: possible-completions')
-    readline.set_completer_delims(' ')
+    """Prepares readline for our use. DEPRECATED."""
+    print '(Squires warning) PrepareReadline() is deprecated and now a NoOp.'
 
-  def AddCommand(self, name, help=None, runnable=None, method=None):
+  def AddCommand(self, name, help=None, runnable=None, method=None, pipe=None):
     """Convenience function to add a command to the tree.
 
     Returns the new Command() object, already added to the tree. Options
@@ -148,6 +150,7 @@ class Command(dict):
       method: A function which will be the new object's 'Run' method. This
         method will be passed two arguments - the Command object ("self"), and
         the entire command line as a list of strings.
+      pipe: A Command object, the pipe command tree. Currently unused.
 
     Returns:
       A Command() object.
@@ -162,19 +165,65 @@ class Command(dict):
   def AddSubCommand(self, name, **kwargs):
     """Similar to AddCommand(), but added directly below the current Command.
 
-    Name is a string, the command name relative to the Command() instance.
-    that AddSubCommand is called for. eg if this Command is 'set pager' and
-    name is 'terminal', the new command is 'set pager terminal'.
+    Args:
+      name: A string, the command name relative to the Command() instance.
+      that AddSubCommand is called for. eg if this Command is 'set pager' and
+      name is 'terminal', the new command is 'set pager terminal'.
 
     Returns:
       A Command() object, the new command.
     """
-    ancestors = ' '.join(self._orig_ancestors) + ' %s %s' % (self.name, name)
+    ancestors = ' '.join(self.orig_ancestors) + ' %s %s' % (self.name, name)
     return self.AddCommand(ancestors, **kwargs)
 
   def __repr__(self):
     return '<Command Object, Name "%s", SubCommands: %s>' % (
         self.name, ','.join(self.keys()))
+
+  def GetPipeTree(self):
+    """Get the best pipe tree, climbing the command tree.
+
+    Looks at this object's pipetree. If not none, returns it,
+    otherwise ascends the tree until it finds one.
+
+    Returns:
+      A Command() object, the matching pipe tree. None if there
+      is not any.
+    """
+    if self.pipetree is not None:
+      return self.pipetree
+    if self.parent is not None:
+      return self.parent.GetPipeTree()
+    return None
+
+  def WillPipe(self, line):
+    """Returns whether this line will be piped.
+
+    Args:
+      line: A list of str, the command line.
+
+    Returns:
+      A boolean. If True, a pipe is present and will be processed.
+    """
+    return self.GetPipeTree() is not None and PIPE_CHAR in line
+
+  def _ReadlinePrepare(self):
+    """Prepare readline for use."""
+    readline.set_completion_display_matches_hook(
+        self.root.FormatCompleterOptions)
+    readline.set_completer(self.root.ReadlineCompleter)
+    readline.parse_and_bind('tab: complete')
+    readline.parse_and_bind('?: possible-completions')
+    readline.set_completer_delims(' \t')
+
+    self._old_delims = readline.get_completer_delims()
+    readline.set_completer_delims(' ')
+
+  def _ReadlineUnprepare(self):
+    """Reset readline."""
+    readline.set_completer(None)
+    readline.set_completion_display_matches_hook(None)
+    readline.set_completer_delims(self._old_delims)
 
   def Loop(self, prompt=None):
     """Main CLI loop.
@@ -202,36 +251,25 @@ class Command(dict):
     if prompt is not None:
       self.prompt = prompt
 
-    # If logging to a file, we temporarily need to restore
-    # stdout for readline to work correctly.
-    old_stdout = sys.stdout
-    sys.stdout = sys.__stdout__
+    self._ReadlinePrepare()
     line = raw_input(self.prompt)
-    sys.stdout = old_stdout
-    if self.writer is not None:
-      self.writer.Log('%s%s\n' % (self.prompt, line))
+    self._ReadlineUnprepare()
 
     try:
       split_line = shlex.split(line)
     except ValueError, e:
-      print '%% %s' % e
+      print '%% %s' % e  # Unterminated quote or other parse error.
       return
 
-    # Disable completer so a 'Run' method that uses 'raw_input' wont
-    # autocomplete on the squires commands.
-    readline.set_completer(None)
-    # Work around lack of 'finally' in 2.4
     try:
       self.Execute(split_line)
     except (KeyboardInterrupt, EOFError), e:
-      # Catch ctrl-c and eof and pass up
-      readline.set_completer(self.ReadlineCompleter)
+      # Catch ctrl-c and eof and pass up.
       raise
     except Exception, e:
       # Other exceptions whilst running command have trace
       # printed, then back to the prompt.
       traceback.print_exc(file=sys.stdout)
-    readline.set_completer(self.ReadlineCompleter)
 
   def ReadlineCompleter(self, unused_word, state):
     """Readline completion handler.
@@ -239,49 +277,74 @@ class Command(dict):
     This method is registered with readline to perform command
     completion. It tidies up the current command line, before
     passing to self.Completer.
+    See the Python readline documentation for more details on
+    this method.
 
     Args:
       unused_word: A string, the current word under the cursor. (unused)
       state: An int, the 'tab press number', indexed at zero.
     Returns:
-      A string, a unique valid completion, or None.
+      A string, the next possible completion, or None.
+    """
+    initial_candidates = self.FindCurrentCandidates()
+    if not initial_candidates:
+      print '\nNo valid completions.'
+      print self.prompt + readline.get_line_buffer(),
+      return None
+    candidates = []
+    for cand in initial_candidates:
+      candidates.append(cand + COMPLETE_SUFFIX)  # Add space after the token.
+      if cand.startswith('<'):
+        # Make an additional dummy candidate to force
+        # display of these instead of auto-completing.
+        candidates.append('%@%@%@' + cand)
+    candidates.append(None)  # readline expects None at the end.
+    return candidates[state]
+
+  def FormatCompleterOptions(self, unused_substitution, unused_matches,
+                             unused_longest):
+    """Displays the possible completions, with help text.
+
+    This function is registered in _ReadlinePrepare, and readline
+    calls it to display possible completions when needed.
+    See readline documentation for more details on this method.
+
+    Args:
+      unused_substitution: A str, the current word under the cursor.
+      unused_matches: A list, possible tokens that match, as returned by
+        ReadlineCompleter.
+      unused_longest: An int, the length of the longest match.
+    """
+    print '\nValid completions:'
+    candidates = self.FindCurrentCandidates()
+    for candidate in sorted(candidates):
+      if not candidate.startswith('%@%@%@'):
+        # Print it unless its a dummy candidate (see above).
+        print ' %-21s %s' % (candidate, candidates[candidate] or '')
+    print self.prompt + readline.get_line_buffer(),
+
+  def FindCurrentCandidates(self):
+    """Finds valid completions on the current line.
+
+    Returns:
+      A dict. Keys are valid next token, values are help text for each.
     """
     try:
-      try:
-        current_line = shlex.split(readline.get_line_buffer())
-      except ValueError, e:
-        if str(e) == 'No closing quotation':
-          current_line = shlex.split(readline.get_line_buffer() + '"')
-
+      for quote in ('', "'", '"'):
+        # Auto close quotations to allow tab completion.
+        try:
+          current_line = shlex.split(readline.get_line_buffer() + quote)
+          break
+        except ValueError, e:
+          pass
+      else:
+        raise  # Re-raise exception that our extra quotes couldnt stop.
       if readline.get_line_buffer().endswith(' '):
         current_line.append(' ')
-
-      if not state:
-        complete_string = ''
-        try:
-          candidates = self.Completer(current_line)
-        except:
-          print traceback.print_exc(file=sys.stdout)
-          raise
-        if len(candidates) == 1 and not candidates.keys()[0].startswith('<'):
-          complete_string = candidates.keys()[0] + ' '
-        elif candidates:
-          print '\nValid completions:'
-          candidate_words = candidates.keys()
-          candidate_words.sort()
-          for candidate in candidate_words:
-            print ' %-21s %s' % (candidate, candidates[candidate] or '')
-          print self.prompt + readline.get_line_buffer(),
-          complete_string = self._GetCommonPrefix(candidate_words)
-          if complete_string.startswith('<'):
-            complete_string = None
-        else:
-          print '\n% No valid completions.'
-          print self.prompt + readline.get_line_buffer(),
-        return complete_string
-      return None
-    except:
+      return self.Completer(current_line)
+    except Exception:
       print '\n%s' % traceback.format_exc()
+      return {}
 
   def Completer(self, current_line):
     """Completion handler.
@@ -314,9 +377,13 @@ class Command(dict):
       completion (eg, if one wants to show "<string>   The string.")
     """
 
-    # First disambiguate as much as possible
+    # First disambiguate as much as possible.
     self.command_line = current_line
     line = self.Disambiguate(current_line)
+
+    # If a pipe is present, tab complete down the pipeline.
+    if self.WillPipe(line):
+      return self.GetPipeTree().Completer(pipe.SplitByPipe(line)[1])
 
     candidates = {}
 
@@ -324,14 +391,13 @@ class Command(dict):
     for name, subcommand in self.iteritems():
       if subcommand._Matches(line):
         if len(line) > 1:
-          # A line with more elements here is passed to
-          # the first match.
+          # A line with more elements here is passed to the first match.
           return subcommand.Completer(line[1:])
         elif not subcommand.hidden or SHOW_HIDDEN:
           # Or add non-hidden commands to the help options.
           candidates[name] = subcommand.help
 
-    # Add completions for options
+    # Add completions for options.
     candidates.update(self.options.GetOptionCompletes(line))
 
     return candidates
@@ -341,6 +407,12 @@ class Command(dict):
 
     A match is either the line's first element maching our name,
     or the line being empty (meaning, ask for all possible commands).
+
+    Args:
+      line: A list of str, the current command line.
+
+    Returns:
+      A boolean, True if the line matches this command object.
     """
     if line == [' '] or not line:
       return True
@@ -349,10 +421,12 @@ class Command(dict):
   def AddOption(self, name, **kwargs):
     """Adds an option to this command.
 
-    See Options() and Option() docstring for valid kwargs options.
+    Args:
+      name: The name of the option to add.
 
-    Returns this Command object. This is done to make for convenient
-    chaining of AddOption calls to a single Command object.
+    Returns:
+      A Command() object, this. This is done to make for convenient
+      chaining of AddOption calls to a single Command object.
     """
     self.options.AddOption(name, **kwargs)
     return self
@@ -376,6 +450,36 @@ class Command(dict):
     return common
 
   def Disambiguate(self, command, prefer_exact_match=False):
+    """Disambiguates commands.
+
+    Attempts to expand all elements of the supplied command.
+    If a pipe is present, disambiguates both the main command
+    as well as the pipe, before recombining, else just
+    disambiguates this command.
+
+    Args:
+      command: A list of strings, tokens of current command line.
+      prefer_exact_match: A boolean, if there is an exact match then
+        return that instead of a common prefix.
+
+    Returns:
+      A list, where the tokens are disambiguated. If
+      ambiguous, returns the supplied 'command'
+    """
+    expanded = []
+    if self.WillPipe(command):
+      first, last = pipe.SplitByPipe(command)
+      first_dis = self.Disambiguate(first, prefer_exact_match)
+      last_dis = self.GetPipeTree().Disambiguate(last, prefer_exact_match)
+      if first_dis:
+        expanded = first_dis + [PIPE_CHAR] + last_dis
+      else:
+        expanded = last_dis
+    else:
+      expanded = self._Disambiguate(command, prefer_exact_match)
+    return expanded
+
+  def _Disambiguate(self, command, prefer_exact_match=False):
     """Disambiguates a command, by expanding elements.
 
     For example: ['sh'] -> ['show']
@@ -401,8 +505,8 @@ class Command(dict):
     if not command:
       return []
 
-    matches = []  # List of candidate sub-commands
-    # Attempt to look for valid subcommands
+    matches = []  # List of candidate sub-commands.
+    # Attempt to look for valid subcommands.
     for candidate in self:
       if prefer_exact_match and candidate == command[0].lower():
         # An exact match short-circuits the search.
@@ -440,7 +544,7 @@ class Command(dict):
         # Ancestor not found, create it and add it.
         cmd = Command(name=key, help=command_object.help)
         cmd.ancestors = command_object.ancestors[:idx]
-        cmd._busy = True  # Loop prevention
+        cmd._busy = True  # Loop prevention.
         if self.name != '<root>':
           cmd.ancestors.extend(self.name)
         self.Attach(cmd)
@@ -459,14 +563,15 @@ class Command(dict):
       command_object: A Command() object.
     """
     ancestors = list(command_object.ancestors)
-    if not command_object._orig_ancestors:
-      command_object._orig_ancestors = ancestors
+    if not command_object.orig_ancestors:
+      command_object.orig_ancestors = ancestors
     command_object.root = self.root
     if not ancestors:
       if command_object.name in self:
-        # If node already exists, merge sub-commands
+        # If node already exists, merge sub-commands.
         command_object.update(self[command_object.name])
       self[command_object.name] = command_object
+      command_object.parent = self
       return
 
     # The '_busy' attribute is used for loop prevention when this method
@@ -511,13 +616,29 @@ class Command(dict):
     # Expand the command line out.
     self.command_line = self.Disambiguate(command, prefer_exact_match=True)
 
+    if self.WillPipe(command) and command[0] == PIPE_CHAR:
+      # Retain pipe at the start.
+      self.command_line = [PIPE_CHAR] + self.command_line
+
     # If command line is empty at this point, or the next option
     # is not a valid subcommand, we run it locally.
     if len(self.command_line) < 1 or self.command_line[0] not in self:
       if self.options.HasAllValidOptions(self.command_line, describe=True):
-        print '\r',  # Backspace due to a readline quirk adding spurious space
-        return self.Run(self.command_line)
-      return
+        print '\r',  # Backspace due to a readline quirk adding spurious space.
+        if self.WillPipe(self.command_line):
+          retval = None
+          first, last = pipe.SplitByPipe(self.command_line)
+          # Run "<pipecmd> start" to init pipe.
+          if self.GetPipeTree().Execute(last + ['start']):
+            try:
+              retval = self.Run(self.command_line)
+            finally:
+              # Run "<pipecmd> stop" to close pipe.
+              self.GetPipeTree().Execute(last + ['stop'])
+          return retval
+        else:
+          return self.Run(self.command_line)
+      return False
 
     # First command line token is a subcommand, pass down.
     return self[self.command_line[0]].Execute(self.command_line[1:])
@@ -547,7 +668,6 @@ class Options(list):
 
     Args:
       name: A string, the name of the option.
-      kwargs: Key word args, to match Option() constructor.
 
     Raises:
       ValueError: An invalid option parameter combination was supplied.
@@ -558,7 +678,7 @@ class Options(list):
       if option.name == name:
         self.remove(option)
         if option.arg_val is not None:
-          # Also remove keyvalue "value" option
+          # Also remove keyvalue "value" option.
           self.remove(option.arg_val)
 
     kwargs['name'] = name
@@ -589,11 +709,11 @@ class Options(list):
       kwargs['boolean'] = False
       kwargs['is_path'] = path
       kwargs['name'] = '<' + option.name + '__arg>'
-      optionv = option_lib.Option(**kwargs)
 
+      optionv = option_lib.Option(**kwargs)
       optionv.arg_key = option
       optionv.default = default
-      optionv.hidden = False  # Always tab complete on the arg
+      optionv.hidden = False  # Always tab complete on the arg.
 
       option.arg_val = optionv
       option.default = default
@@ -631,11 +751,11 @@ class Options(list):
           # Matched earlier, skip.
           continue
         if option.Matches(command_line, tok_index):
-          # Found our option
+          # Found the option.
           found_tokens.append(tok_index)
           if option.name == option_name:
             if option.arg_val is not None:
-              # Option has an arg token, match on it
+              # Option has an arg token, match on it.
               return option.arg_val.Match(command_line, tok_index+1)
             return option.Match(command_line, tok_index)
       # Option not on command line. If is has default, return that.
@@ -650,6 +770,7 @@ class Options(list):
     current command line.
 
     Args:
+      command_line: A list of strings, the command line.
       group: A string, the name of the group to fetch.
 
     Returns:
@@ -674,16 +795,20 @@ class Options(list):
     Similar to Command.Disambiguate, but the supplied 'command'
     should contain only options.
 
+    Args:
+      command: A list of strings, the tokens that make up the
+        command line.
+
     Returns:
       A list, where the tokens are disambiguated. If
       ambiguous, returns the supplied 'command'
     """
     newcommand = list(command)
-    index = 0
-    # For each word in the original command line, add the
-    # full name for its matching option to the new command line.
-    while index < len(command):
-      word = command[index]
+    # Make a copy of the original command line. For each token in
+    # the command line, attempt to expand the option to its full
+    # string.
+    # Stop processing if an ambiguous token is reached.
+    for index, word in enumerate(command):
       candidates = []
       for option in self:
         # Look through options. Any that match the current word
@@ -696,25 +821,13 @@ class Options(list):
               candidates.append(option.name)
             else:
               matches = option.GetMatches(word)
-              #candidates.append(option.Match(command, index))
               candidates.extend(matches.keys())
       if len(candidates) != 1:
         # Skip out of completion if less or more than one option matches.
         break
-      # Expanded command line is built with uniquely matching
-      # options.
+      # Expanded command line is built with uniquely matching options.
       newcommand[index] = candidates[0]
-      index += 1
     return newcommand
-
-  def _GetRequiredGroups(self):
-    """Returns required groups in this option set."""
-    required_groups = set()
-    # Build a list of requird option groups.
-    for option in self:
-      if option.group and option.required:
-        required_groups.add(option.group)
-    return required_groups
 
   def _GetRequiredGroups(self):
     """Returns required groups in this option set."""
@@ -725,11 +838,45 @@ class Options(list):
         required_groups.add(option.group)
     return required_groups
 
+  def _FindOptions(self, line):
+    """Find options present on the command line.
+
+    Args:
+      line: A list of str, the command line.
+
+    Returns:
+      A tuple of lists. The first list is a list of options that
+        are found. The second is a list of groups with a matched
+        option.
+    """
+    found_groups = set()
+    found_options = []
+
+    matched_tokens = []
+    for option in self:
+      # For each option, search the command line for its presence.
+      for idx, token in enumerate(line):
+        if idx == len(line)-1 and token != ' ':
+          break
+        if idx in matched_tokens:
+          continue  # Match a token only once.
+        if option.Matches(line, idx):
+          if (option.arg_key is not None and not
+              option.arg_key.Matches(line, idx-1)):
+            # Ignore this option if it matches a keyvalue 'value',
+            # but the previous token is not the key part.
+            continue
+          matched_tokens.append(idx)
+          found_options.append(option.name)
+          if option.group:
+            found_groups.add(option.group)
+    return (found_options, found_groups)
+
   def GetOptionCompletes(self, line):
     """Fetches option completions.
 
-    In addition, if self.command.runnable is set, any/all required options are
-    found, and current token is empty, '<cr>' is added to the completes.
+    If self.command.runnable is set, any/all required options are
+    found and current token is empty, '<cr>' will be added to the completes.
 
     This method could be overwritten by subclasses to do eg. dynamic
     completions.
@@ -742,71 +889,37 @@ class Options(list):
     Returns:
       A dict, keys are valid completions, values are associated helpstring.
     """
+    # The final returned dict.
     completes = {}
+    # Get the last token on the line.
+    last_token = None
     if line:
       last_token = line[-1]
-    else:
-      last_token = None
 
-    seen_groups = set()
-    has_required = True
-    required_groups = self._GetRequiredGroups()
+    # found options are options which are found.
+    # Seem groups are groups for which a member was seen.
+    found_options, seen_groups = self._FindOptions(line)
+    # Ensure has all the required options present.
+    has_required = self.HasAllValidOptions(line[:-1])
 
-    found_options = []
+    def _SkipOption(option, line):
+      """Determines whether to skip the given option."""
+      if (
+          (option.name in found_options) or  # Already have this option.
+          (option.hidden and not SHOW_HIDDEN) or  # Dont show hidden options.
+          (option.group in seen_groups) or  # Already have a group member.
+          # Position is not valid at this token.
+          (option.position >= 0 and len(line) - 1 != option.position) or
+          # No match for this option (unless no token is present).
+          (last_token != ' ' and not option.Matches(line, len(line) - 1))):
+        return True
+      return False
 
-    # Go through current command line and look for
-    # required options being present (to add <cr>), or
-    # option group members already present, to not display
-    # other group members. Also put names of options already
-    # present into found_options.
-    matched_tokens = []
+    # Go through options that were not found on the line, and
+    # see if they need to be considered for completion candidates.
     for option in self:
-      for idx, token in enumerate(line):
-        if idx == len(line)-1 and token != ' ':
-          break
-        if idx in matched_tokens:
-          continue
-        if option.Matches(line, idx):
-          # Make sure a keyvalue value has the corresponding
-          # key as the previous token.
-          if (option.arg_key is not None and not
-              option.arg_key.Matches(line, idx-1)):
-            continue
-          matched_tokens.append(idx)
-          found_options.append(option.name)
-          if option.group:
-            seen_groups.add(option.group)
-            if option.group in required_groups:
-              required_groups.remove(option.group)
-      if (option.required and not option.group and
-          option.name not in found_options):
-        has_required = False
-
-    if required_groups:
-      # Above block has not found any member of required groups.
-      has_required = False
-
-    for option in self:
-      # Go through all options, see which ones could be a match.
-      if option.name in found_options:
-        # Already have this option.
+      if _SkipOption(option, line):
         continue
-      if option.hidden and not SHOW_HIDDEN:
-        # Dont show hidden options
-        continue
-      if option.group and option.group in seen_groups:
-        # Already have a group member.
-        continue
-      if option.position >= 0 and len(line) - 1 != option.position:
-        # Position is not valid at this token.
-        continue
-      if last_token != ' ' and not option.Matches(line, len(line) - 1):
-        # No match for this option (unless no token is present)
-        continue
-      if option.arg_val is not None and last_token == ' ':
-        # We have the 'key' of a keyvalue option, but we are at EOL. As a
-        # result, we cant yet assume all options are present.
-        has_required = False
       if option.arg_key is not None:
         # We have the value of a key/value option. Check the previous token
         # is the key and is valid, then add this option as the only completion.
@@ -814,10 +927,10 @@ class Options(list):
           # Line too short or previous token doesnt match
           continue
         # Reset all completes, as we only want whetever matches the keyvalue.
-        if option.matcher.MATCH in ['list', 'dict', 'path', 'method']:
+        if option.matcher.MATCH in ('list', 'dict', 'path', 'method'):
           completes = option.GetMatches(last_token)
           if len(completes) != 1:
-            # single value of keyvalue not present
+            # single value of keyvalue not present.
             has_required = False
         else:
           key = option.name.replace('__arg', '')
@@ -828,19 +941,18 @@ class Options(list):
         break
 
       if option.matcher.MATCH == 'regex':
-        # Regex completes show '<option_name>'
+        # Regex completes show '<option_name>'.
         completes['<%s>' % option.name] = option.helptext
       else:
         # Others show the actual valid strings.
         completes.update(option.GetMatches(last_token))
 
-      if option.default and option.name in completes:
-        completes[option.name] += ' [Default: %s]' % option.default
-
     # Add <cr> to to options if the command is runnable, any/all options are
     # supplied, and there is no word under the cursor.
     if has_required and self.command.runnable and last_token in (None, ' '):
       completes['<cr>'] = self.command.execute_command_string
+      if self.command.GetPipeTree() is not None:
+        completes[PIPE_CHAR] = 'Run stdout through pipe'
 
     # Strip out completes starting with '<' if there are non '<' completes
     # and there is a word under the cursor.
@@ -878,9 +990,16 @@ class Options(list):
     group_dupes = set()
 
     found_options = []
+
+    # Strip out anything from a pipe, this method should only check
+    # on the left side of a pipe.
+    if self.command.WillPipe(command):
+      command = pipe.SplitByPipe(command)[0]
+
     # All tokens are unknown. We will remove them as we find known ones.
     unknown_tokens = list(command)
     matched_tokens = []
+
     # Now go through each option.
     for option in self:
       found_option = False
@@ -893,24 +1012,27 @@ class Options(list):
         # Fetch all matching variants of this option.
         matches = option.GetMatches(token)
         if len(matches) != 1 and token not in matches:
-          # This is skipped if the token is an exact match
-          print '%% Multiple matches for "%s" argument "%s":' % (
-              option.name, token)
-          for arg in matches.keys():
-            print ' %s' % arg
+          # A 'multiple match' error is displayed unless the
+          # token is an exact match for one of the candidates.
+          if describe:
+            print '%% Multiple matches for "%s" argument "%s":' % (
+                option.name, token)
+            for arg in matches:
+              print ' %s' % arg
           return False
         # If option is a keyvalue key, make sure itmatches previous token.
         if option.arg_key is not None:
           if not option.arg_key.Matches(command, token_index-1):
             continue
         matched_tokens.append(token_index)
-        # Token a valid option, remove from unknown list
+        # Token a valid option, remove from unknown list.
         if token in unknown_tokens:
           unknown_tokens.remove(token)
         # If a path option, check for existance if 'only_valid_paths'.
         if option.is_path and option.only_valid_paths and not os.path.exists(
             option.Match(command, token_index)):
-          print '%% File not found: %s' % option.Match(command, token_index)
+          if describe:
+            print '%% File not found: %s' % option.Match(command, token_index)
           return False
         # If option already present, return error.
         if option.name in found_options:
@@ -924,10 +1046,12 @@ class Options(list):
         # 'arg_val' option.
         if option.arg_val is not None:
           if token_index == len(command) - 1:
-            print '%% Argument for option "%s" ' 'missing.' % option.name
+            if describe:
+              print '%% Argument for option "%s" missing.' % option.name
             return False
           if not option.arg_val.Matches(command, token_index+1):
-            print '%% Invalid argument for option "%s".' % option.name,
+            if describe:
+              print '%% Invalid argument for option "%s".' % option.name,
             if option.arg_val.matcher.reason:
               print option.arg_val.matcher.reason
             else:
@@ -935,21 +1059,22 @@ class Options(list):
             return False
           matches = option.arg_val.GetMatches(command[token_index+1])
           if len(matches) != 1:
-            print '%% Multple matches for "%s" argument "%s":' % (
-                option.name, command[token_index+1])
-            for arg in matches.keys():
-              print ' %s' % arg
+            if describe:
+              print '%% Multple matches for "%s" argument "%s":' % (
+                  option.name, command[token_index+1])
+              for arg in matches:
+                print ' %s' % arg
             return False
-        # Required group option
+        # Required group option.
         if option.required and option.group:
           if option.group in missing_groups:
-            # Un-mark group as missing
+            # Un-mark group as missing.
             missing_groups.remove(option.group)
           else:
-            # Else mark it as duplicate group option
+            # Else mark it as duplicate group option.
             group_dupes.add(option.group)
 
-      # Missing required option (non-group)
+      # Missing required option (non-group).
       if (option.required
           and not option.group
           and not found_option
@@ -963,7 +1088,7 @@ class Options(list):
         if unknown_tokens:
           print '%% Unknown option(s): %s' % ', '.join(unknown_tokens)
         if group_dupes:
-          # More than one group member, return error
+          # More than one group member, return error.
           groupoptions = []
           for option in self:
             if option.group in group_dupes:
@@ -978,3 +1103,115 @@ class Options(list):
           print '%% Missing one of: %s' % ', '.join(groupoptions)
       return False
     return True
+
+
+class Definition(object):
+  """Stores definitions in a tree.
+
+  This is a generic object used by a client program to define
+  types of objects in the command tree, eg commands or options.
+  Rather than have a client directly call Command() or Option(),
+  this wrapper allows for pre-creation checks to be done, as well
+  as to define sub-types of Option or Command.
+
+  The args and kwargs are entirely object dependent, so they are
+  simply stored as attributes, to be referenced by other code
+  more specifically.
+
+  Attributes:
+    args: A list of args supplied to the constructor.
+    kwargs: A dict of kwargs supplied to the constructor.
+  """
+
+  def __init__(self, *args, **kwargs):
+    self.args = args
+    self.kwargs = kwargs
+
+
+class CommandDefinition(Definition):
+  """Definition for a Command in the tree."""
+
+
+class OptionDefinition(Definition):
+  """Definition for an Option in the tree."""
+
+
+class PipeTreeDefinition(Definition):
+  """Definition for a tree of Pipes."""
+
+
+class PipeDefinition(Definition):
+  """Definition for a Pipe in the tree."""
+
+
+def Definitions():
+  """Returns a list of the above definitions."""
+  return CommandDefinition, OptionDefinition, PipeTreeDefinition, PipeDefinition
+
+
+def ParseTree(joint, tree):
+  """Parses the given tree and adds as sub to 'joint'.
+
+  For information on the definition of 'tree', please see
+  the example.py file. The format is self explanatory.
+
+  Args:
+    joint: A Command(), the command to join this tree to.
+    tree: A list or nested dict. Normall the entire tree will be
+      a nested dict, but with the tree, Options are defined as a
+      list/set rather than a dict.
+  """
+  if isinstance(tree, (set, tuple, list)):
+    # If tree is a list type, convert to dict. A list type is usually how
+    # options for a command are defined.
+    newtree = {}
+    for item in tree:
+      newtree[item] = {}
+    tree = newtree
+  # Walk the tree, create items.
+  for item, subs in tree.iteritems():
+    if isinstance(item, (CommandDefinition, PipeDefinition)):
+      # Command or pipe item.
+      if joint.root == joint:
+        # Toplevel
+        newcmd = joint.AddCommand(*item.args, **item.kwargs)
+      else:
+        newcmd = joint.AddSubCommand(*item.args, **item.kwargs)
+      if isinstance(item, PipeDefinition):
+        # Create a command for the pipe
+        pipe_cmd = item.kwargs.get('pipe')
+        newcmd.pipe = pipe_cmd
+        newcmd.method = pipe_cmd.State
+        newcmd.runnable = True
+        newcmd.AddOption('start', boolean=True, hidden=True)
+        newcmd.AddOption('stop', boolean=True, hidden=True)
+      # Recurse down the tree.
+      ParseTree(newcmd, subs)
+    elif isinstance(item, OptionDefinition):
+      # Option.
+      joint.AddOption(*item.args, **item.kwargs)
+    elif isinstance(item, PipeTreeDefinition):
+      # Define a pipe tree at this point.
+      pipetree = Command()
+      ParseTree(pipetree, item.kwargs['tree'])
+      joint.pipetree = pipetree
+
+
+# Define a basic tree for pipes that modules can use.
+_COMMAND, _OPTION, _PIPETREE, _PIPE = Definitions()
+DEFAULT_PIPETREE = {
+    _PIPE('more', help='One page at a time', pipe=pipe.MorePipe()): {},
+    _PIPE('grep', help='Find a string', pipe=pipe.GrepPipe()): (
+        _OPTION('string', helptext='String to find', match='\S',
+                required=True),
+    ),
+    _PIPE('except', help='Except a string', pipe=pipe.ExceptPipe()): (
+       _OPTION('string', helptext='String to exclude', match='\S',
+               required=True),
+    ),
+    _PIPE('count', help='Count lines', pipe=pipe.CountPipe()): {},
+    _PIPE('sh', help='pipe to shell command', pipe=pipe.ShellPipe()): (
+        _OPTION('string', helptext='Command to pipe to', match='\S',
+                required=True),
+    ),
+}

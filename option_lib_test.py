@@ -21,6 +21,7 @@ import option_lib
 
 TEST_PATH = '.'
 
+
 class CommandsTest(unittest.TestCase):
 
   def testOption(self):
@@ -40,7 +41,7 @@ class CommandsTest(unittest.TestCase):
 
     # Do the same for regex match based non-boolean options.
     option = option_lib.Option(name='<aid>', boolean=False,
-                            match='\d[a-z]\d', helptext='bar')
+                               match='\d[a-z]\d', helptext='bar')
     self.failUnlessEqual(option.Match(['2e2'], None), '2e2')
     self.failUnlessEqual(option.Match(['foobar', '2e2'], None), '2e2')
     self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), '2e2')
@@ -49,7 +50,7 @@ class CommandsTest(unittest.TestCase):
 
     # And boolean regex based options.
     option = option_lib.Option(name='<aid>', boolean=True,
-                            match='\d[a-z]\d', helptext='bar')
+                               match='\d[a-z]\d', helptext='bar')
     self.failUnlessEqual(option.Match(['2e2'], None), True)
     self.failUnlessEqual(option.Match(['foobar', '2e2'], None), True)
     self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), True)
@@ -57,7 +58,7 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(option.Match(['e2e', 'foo'], None), None)
 
     # List based options
-    option = option_lib.Option(name="alist", boolean=False,
+    option = option_lib.Option(name='alist', boolean=False,
                                match=['one', 'two', 'three', 'four'],
                                helptext='Some help')
     self.failUnlessEqual({'two': '', 'three': ''},
@@ -72,6 +73,7 @@ class CommandsTest(unittest.TestCase):
 
 class MatchTest(unittest.TestCase):
   """Test options_lib.BaseMatch classes."""
+
   def testBoolean(self):
     bm = option_lib.BooleanMatch('green', 'Make it green')
     self.assertTrue(bm.Matches('green'))
@@ -97,14 +99,16 @@ class MatchTest(unittest.TestCase):
 
     self.assertEqual({'ge-0/0/0': 'A Juniper ethernet interface'},
                      bm.GetValidMatches('ge-0/0/0'))
-    self.assertEqual({'<[fgx]e-.*>': 'A Juniper ethernet interface'},
+    self.assertEqual({'<<interface>>':
+                      'A Juniper ethernet interface ([fgx]e-.*)'},
                      bm.GetValidMatches(None))
     self.assertEqual({},
                      bm.GetValidMatches('so-0/0/0'))
 
   def testList(self):
     bm = option_lib.ListMatch(
-        ['red', 'black', 'blue', 'blueish', 'green'], 'A colour')
+        ['red', 'black', 'blue', 'blueish', 'green'], 'A colour',
+        option_lib.Option('foo'))
     self.assertTrue(bm.Matches('red'))
     self.assertTrue(bm.Matches('blue'))
     self.assertFalse(bm.Matches('white'))
@@ -131,7 +135,7 @@ class MatchTest(unittest.TestCase):
          'black': 'The colour black',
          'blue': 'The colour blue',
          'blueish': 'A sort of blue',
-         'green': 'The colour green'})
+         'green': 'The colour green'}, option_lib.Option('foo'))
     self.assertTrue(bm.Matches('red'))
     self.assertTrue(bm.Matches('blue'))
     self.assertTrue(bm.Matches('blueish'))
@@ -163,7 +167,7 @@ class MatchTest(unittest.TestCase):
           'blueish': 'A sort of blue',
           'green': 'The colour green'}
 
-    bm = option_lib.MethodMatch(MatchMethod, None)
+    bm = option_lib.MethodMatch(MatchMethod, option_lib.Option('foo'))
     self.assertTrue(bm.Matches('red'))
     self.assertTrue(bm.Matches('blue'))
     self.assertTrue(bm.Matches('blueish'))
@@ -188,13 +192,14 @@ class MatchTest(unittest.TestCase):
 
   def testPath(self):
     """Tests path matching."""
-    fm = option_lib.PathMatch(None)
+    fm = option_lib.PathMatch(None, None)
     self.assertTrue(fm.Matches('blah'))
     self.assertTrue(fm.Matches('/etc'))
     self.assertFalse(fm.Matches(''))
     self.assertFalse(fm.Matches(' '))
 
-    fm = option_lib.PathMatch(None, only_existing=True,
+    fm = option_lib.PathMatch(None, option_lib.Option('foo'),
+                              only_existing=True,
                               default_path='./testdata/')
     self.assertEqual(
         {'boo1': '', 'boo2': '', 'file1': ''},
@@ -215,7 +220,8 @@ class MatchTest(unittest.TestCase):
     self.assertEqual(None, fm.GetMatch('boo'))
     self.assertEqual('boo1', fm.GetMatch('boo1'))
 
-    fm = option_lib.PathMatch(None, only_existing=True,
+    fm = option_lib.PathMatch(None, option_lib.Option('foo'),
+                              only_existing=True,
                               only_dirs=True)
 
     self.assertEqual(

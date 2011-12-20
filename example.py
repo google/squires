@@ -29,6 +29,7 @@ import squires
 
 class Adventure(object):
   """A simple class for a super-dumb adventure game."""
+
   def __init__(self):
     # Set initial player inventory.
     self.inventory = {
@@ -93,7 +94,12 @@ class Adventure(object):
       self.SlowPrint('I dont see a %s.' % item)
 
   def GetStrengths(self, unused_arg):
-    return ['pissweak', 'weak', 'strong', 'superman']
+    return {
+        'pissweak': 'Pointless!',
+        'weak': 'Meh',
+        'strong': 'Better',
+        'superman': 'Now we\'re talking!'
+        }
 
   def Set(self, command, unused_command):
     colour = command.GetOption('colour')
@@ -101,13 +107,16 @@ class Adventure(object):
     pager = command.GetOption('pager')
     strength = command.GetOption('strength')
 
+    if command.GetOption('error'):
+      raise Exception('boo!')
+
     print 'Colour is: %s' % colour
     print 'File is: %s' % filename
     print 'Pager is: %s' % pager
     print 'Strength is: %s' % strength
 
   def Look(self, command, unused_command):
-    direction = command.GetOption('<direction>')
+    direction = command.GetOption('direction')
     if direction is None:
       self.SlowPrint('You see various things in different places.# Look where?')
     elif direction in ('north', 'south', 'east', 'west'):
@@ -121,6 +130,7 @@ class Adventure(object):
 
   def Walk(self, command, _):
     direction = command.GetOption('direction')
+    print 'Walking %s' % direction
     if not random.randint(0, 7):
       self.SlowPrint('You are eaten by a grue.')
       time.sleep(1)
@@ -148,61 +158,62 @@ class CmdRoot(squires.Command):
 def main(unused_argv):
   # First create the root of the tree
   cmd_tree = CmdRoot()
-  # Mandatory to initialise the readline environment.
-  cmd_tree.PrepareReadline()
 
   cmd_tree.name = '<root>'
   cmd_tree.prompt = 'adventure> '
 
   adventure = Adventure()
 
-  use = cmd_tree.AddCommand('use', help='Use an item.')
-  weapon = use.AddSubCommand('weapon', help='Use a weapon.', runnable=True,
-                             method=adventure.UseWeapon)
-  weapon.AddOption('<item>', group='item', helptext='Weapon to use',
-                   required=True, boolean=False,
-                   match=adventure.GetInventory)
+  COMMAND, OPTION, PIPETREE, PIPE = squires.Definitions()
 
-  food = use.AddSubCommand('food', help='Eat some food..', runnable=True,
-                           method=adventure.UseFood)
-  food.AddOption('<item>', group='item', helptext='Food to eat', required=True,
-                 boolean=False, match=adventure.GetInventory)
+  tree = {
+      PIPETREE(tree=squires.DEFAULT_PIPETREE): {},
+      COMMAND('use', help='Use an item'): {
+          COMMAND('weapon', help='Use a weapon', method=adventure.UseWeapon): (
+              OPTION('item', helptext='Weapon to use', group='item',
+                     required=True, match=adventure.GetInventory),
+              ),
+          COMMAND('food', help='Eat some food', method=adventure.UseFood): (
+              OPTION('item', helptext='Food to eat.', group='item',
+                     required=True, match=adventure.GetInventory
+                    ),
+              ),
+          },
+      COMMAND('pickup', help='Pickup an item.', method=adventure.Pickup): (
+          OPTION('item', helptext='Item to pickup.', group='items',
+                 required=True, match='\w+'),
+          OPTION('chupachups', group='items', required=True),
+          ),
+      COMMAND('set', help='Set something.', method=adventure.Set): (
+          OPTION('colour', helptext='Cli colour', match='[a-z]+',
+                 keyvalue=True, default='white'),
+          OPTION('error', helptext='Make an error', boolean=True),
+          OPTION('file', helptext='Dump gold ot file', is_path=True,
+                 keyvalue=True, default='default.txt'),
+          OPTION('pager', helptext='Change screen pager', keyvalue=True,
+                 match={'on': 'Enable the pager', 'off': 'Disable the pager'}),
+          OPTION('power', helptext='Change power', keyvalue=True,
+                 match={'low': 'Set power low', 'high': 'Set power high'}),
+          OPTION('linewrap', helptext='Change linewrap', keyvalue=True,
+                 match={'on': 'Set linewrap on', 'off': 'Set linewrap off'}),
+          OPTION('strength', helptext='Set strength', keyvalue=True,
+                 match=adventure.GetStrengths, hidden=True, default='strong'),
+          ),
+      COMMAND('look', help='Look around the room', method=adventure.Look): (
+          OPTION('direction', helptext='Direction to look',
+                 boolean=False, match='\w+', default='up'
+                ),
+          ),
+      COMMAND('walk', help='Walk somewhere', method=adventure.Walk): (
+          OPTION('direction', helptext='Direction to walk',
+                 match=('north', 'northeast', 'south', 'east', 'west'),
+                 default='north'),
+          ),
+      COMMAND('inventory', help='See your inventory',
+              method=adventure.Inventory): {},
+  }
 
-  pickup = cmd_tree.AddCommand('pickup', help='Pick up an item',
-                               runnable=True,
-                               method=adventure.Pickup)
-  pickup.AddOption('<item>', helptext='Item to pick up', group='items',
-                   boolean=False, match='\w', required=True)
-  pickup.AddOption('chupachups', group='items', boolean=False, required=True)
-
-  set = cmd_tree.AddCommand('set', help='Set something', runnable=True,
-                            method=adventure.Set)
-  set.AddOption('colour', helptext='Cli colour', match='[a-z]+',
-                keyvalue=True, default='white')
-  set.AddOption('file', helptext='Dump gold to file', is_path=True, keyvalue=True
-                    )
-  set.AddOption('pager', helptext='Change screen pager', keyvalue=True,
-                match={'on': 'Set pager on', 'off': 'Disable the pager'})
-  set.AddOption('linewrap', helptext='Change line wrap', keyvalue=True,
-                match={'on': 'Set linewrap on', 'off': 'Disable linewrap'})
-  set.AddOption('strength', helptext='Set strength', keyvalue=True,
-                match=adventure.GetStrengths, hidden=True)
-
-  look = cmd_tree.AddCommand('look', help='Take a look around the room',
-                             runnable=True, method=adventure.Look)
-  look.AddOption('direction', helptext='Look a specific direction',
-                 boolean=False, match='\w')
-
-  walk = cmd_tree.AddCommand('walk', help='Walk somewhere',
-                              method=adventure.Walk)
-  walk.AddOption('direction', helptext='Direction to walk',
-                 match=('north', 'south', 'east', 'west'),
-                 default='north')
-
-  cmd_tree.AddCommand('inventory', help='See your inventory', runnable=True,
-                      method=adventure.Inventory)
-
-
+  squires.ParseTree(cmd_tree, tree)
   adventure.SlowPrint('Welcome to Squires Adventure 1.0! Press <tab> for help.')
 
   cmd_tree.Loop()

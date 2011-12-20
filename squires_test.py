@@ -14,13 +14,14 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-import os
+import cStringIO
+import sys
 import unittest
 
-import option_lib
 import squires
 
 TEST_PATH = '.'
+
 
 class CommandsTest(unittest.TestCase):
 
@@ -168,9 +169,9 @@ class CommandsTest(unittest.TestCase):
 
   def testWithMethod(self):
     def MyMethod(*args):
-      """test docstring"""
+      """test docstring."""
     cmd = squires.Command(name='foo', method=MyMethod)
-    self.failUnlessEqual('test docstring',
+    self.failUnlessEqual('test docstring.',
                          cmd.help)
 
   def testDisambiguate(self):
@@ -277,7 +278,8 @@ class CommandsTest(unittest.TestCase):
     self.failUnless(command.options.HasAllValidOptions(['detailed', 'req1']))
 
     # Duplicate option
-    self.failIf(command.options.HasAllValidOptions(['detailed', 'req1', 'req1']))
+    self.failIf(command.options.HasAllValidOptions(
+        ['detailed', 'req1', 'req1']))
     # Duplicate group option
     self.failIf(command.options.HasAllValidOptions(
         ['detailed', 'terse', 'req1']))
@@ -343,7 +345,7 @@ class CommandsTest(unittest.TestCase):
                                                  'long': 'Long style'},
                   default='long')
     cmd.AddOption('size', keyvalue=True, match={'small': 'Small size',
-                                                 'long': 'Long size'})
+                                                'long': 'Long size'})
     cmd.command_line = ['show', 'interface', 'style', 'short']
     self.failUnlessEqual('short', cmd.GetOption('style'))
     cmd.command_line = ['show', 'interface', 'style', 's']
@@ -352,7 +354,8 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual('long', cmd.GetOption('style'))
 
     cmd.command_line = ['show', 'interface', 'style', 'l']
-    self.failUnlessEqual({'long': 'Long style'}, cmd.Completer(cmd.command_line))
+    self.failUnlessEqual({'long': 'Long style [Default]'},
+                         cmd.Completer(cmd.command_line))
 
     cmd.command_line = ['show', 'interface']
     self.failUnlessEqual('long', cmd.GetOption('style'))
@@ -360,7 +363,8 @@ class CommandsTest(unittest.TestCase):
     cmd.command_line = ['show', 'interface', 'style', 'long', 'size', 'l']
     self.failUnlessEqual({'long': 'Long size'}, cmd.Completer(cmd.command_line))
     cmd.command_line = ['show', 'interface', 'size', 'long', 'style', 'l']
-    self.failUnlessEqual({'long': 'Long style'}, cmd.Completer(cmd.command_line))
+    self.failUnlessEqual({'long': 'Long style [Default]'},
+                         cmd.Completer(cmd.command_line))
 
     cmd.AddOption('count', keyvalue=True, match=lambda x: {'one': '1', 'two':
                                                            '2'})
@@ -380,29 +384,26 @@ class CommandsTest(unittest.TestCase):
     return self.fake_buffer
 
   def testReadlineCompleter(self):
+    get_line_buffer = squires.readline.get_line_buffer
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
 
     self.fake_buffer = 'sh'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0),
-                         'show ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show ')
     self.fake_buffer = 'show vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0),
-                         'version ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version ')
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0),
-                         'version ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version ')
 
     self.fake_buffer = 'show version '
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0),
-                         '')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), None)
 
     command = self.cmd['show']['version']
     command.AddOption('software')
     command.AddOption('hardware')
     self.fake_buffer = 'show version s'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0),
-                         'software ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software ')
+    squires.readline.get_line_buffer = get_line_buffer
 
   def testComplete(self):
     """Test command completion."""
@@ -451,38 +452,6 @@ class CommandsTest(unittest.TestCase):
     completions = self.cmd.Completer(['show', 'invi'])
     self.failUnlessEqual({'invisible': 'invisible command'}, completions)
 
-  def testFileCompleter(self):
-    # TODO (bbuxton): Re-enable these tests.
-    return
-    uncompleted = os.path.join(TEST_PATH, 'testdata/', 'fi')
-    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),
-                         [os.path.join(TEST_PATH, 'testdata/', 'file1')])
-
-    uncompleted = os.path.join(TEST_PATH, 'testdata/', 'file1')
-    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),
-                         [os.path.join(TEST_PATH, 'testdata/', 'file1')])
-
-    uncompleted = os.path.join(TEST_PATH, 'testda')
-    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted,
-                                                        only_dirs=True),
-                         [os.path.join(TEST_PATH, 'testdata/')])
-
-    self.failUnlessEqual(self.cmd.options.FileCompleter(
-        'fil', default_path='testdata/'), ['file1'])
-
-    uncompleted = os.path.join(TEST_PATH, 'testdata/', 'boo1')
-    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted),
-                         [os.path.join(TEST_PATH, 'testdata/', 'boo1')])
-
-    uncompleted = os.path.join(TEST_PATH, 'testdata/', 'b')
-    self.failUnlessEqual(sorted(self.cmd.options.FileCompleter(uncompleted)),
-                         [os.path.join(TEST_PATH, 'testdata/', 'boo1'),
-                          os.path.join(TEST_PATH, 'testdata/', 'boo2')],
-                        )
-
-    uncompleted = os.path.join(TEST_PATH, 'testdata/', 'c')
-    self.failUnlessEqual(self.cmd.options.FileCompleter(uncompleted), [])
-
   def testOptionCompletes(self):
     # Extra option completions
     self.cmd['show']['interface'].AddOption(name='text', helptext='text help')
@@ -521,13 +490,13 @@ class CommandsTest(unittest.TestCase):
         self.cmd['show']['interface'].options.GetOptionCompletes([' ']),
         {'text': 'text help', 'test': 'test help', 'detail': 'detail help',
          'extensive': 'extensive help',
-         'lines': 'lines to show [Default: 25]'})
+         'lines': 'lines to show'})
     # A group member already present, excluded other groups members
     # from completes
     self.failUnlessEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['de', ' ']),
         {'test': 'test help', 'text': 'text help',
-         'lines': 'lines to show [Default: 25]'})
+         'lines': 'lines to show'})
 
     # All available subcommands and options.
     self.failUnlessEqual(
@@ -537,7 +506,7 @@ class CommandsTest(unittest.TestCase):
          'test': 'test help', 'detail': 'detail help',
          'extensive': 'extensive help',
          'xe1': 'xe1 help', 'xe10': 'xe10 help',
-         'lines': 'lines to show [Default: 25]'})
+         'lines': 'lines to show'})
 
     # Some matching subcommands and options
     self.failUnlessEqual(
@@ -562,18 +531,123 @@ class CommandsTest(unittest.TestCase):
         self.cmd['show']['interface'].Completer(['tex', ' ']),
         {'test': 'test help', 'detail': 'detail help',
          'extensive': 'extensive help',
-         'lines': 'lines to show [Default: 25]'})
+         'lines': 'lines to show'})
 
     # KeyValue options
     self.failUnlessEqual(
         self.cmd['show']['interface'].Completer(['lin']),
-        {'lines': 'lines to show [Default: 25]'})
+        {'lines': 'lines to show'})
     self.failUnlessEqual(
         self.cmd['show']['interface'].Completer(['lin', ' ']),
         {'<lines>': 'lines to show [Default: 25]'})
     self.failUnlessEqual(
         self.cmd['show']['interface'].Completer(['tex', 'lin', ' ']),
         {'<lines>': 'lines to show [Default: 25]'})
+
+  def testReadlineFuncs(self):
+    root = squires.Command('<root>')
+    root.AddCommand('one', help='ONE', method=squires)
+    root.AddCommand('two', help='TWO', method=squires).AddSubCommand(
+        'four', help='FOUR', method=squires)
+    root.AddCommand('three', help='THREE', method=squires)
+    # Test 'preparereadline'
+    self.assertEqual(None, squires.readline.get_completer())
+    self.assertFalse(' ' == squires.readline.get_completer_delims())
+    root._ReadlinePrepare()
+    self.assertEqual(root.ReadlineCompleter, squires.readline.get_completer())
+    self.assertEqual(' ', squires.readline.get_completer_delims())
+    root._ReadlineUnprepare()
+    self.assertEqual(None, squires.readline.get_completer())
+    self.assertFalse(' ' == squires.readline.get_completer_delims())
+
+    get_line_buffer = squires.readline.get_line_buffer
+    squires.readline.get_line_buffer = lambda: ''
+    # Test 'FindCurrentCandidates'
+    self.assertEqual({'one': 'ONE', 'two': 'TWO', 'three': 'THREE'},
+                     root.FindCurrentCandidates())
+    squires.readline.get_line_buffer = get_line_buffer
+    squires.readline.insert_text('t')
+    self.assertEqual({'two': 'TWO', 'three': 'THREE'},
+                     root.FindCurrentCandidates())
+
+    # Test completion formatter
+    buf = cStringIO.StringIO()
+    sys.stdout = buf
+    root.FormatCompleterOptions('t', ['two', 'three'], 1)
+    sys.stdout = sys.__stdout__
+    self.assertEqual(
+        ['', 'Valid completions:', ' three                 THREE',
+         ' two                   TWO', '> t'],
+        buf.getvalue().splitlines())
+
+    self.assertEqual('three ', root.ReadlineCompleter('', 0))
+    self.assertEqual('two ', root.ReadlineCompleter('', 1))
+    self.assertEqual(None, root.ReadlineCompleter('', 2))
+
+  def testParseTree(self):
+    COMMAND = squires.CommandDefinition
+    OPTION = squires.OptionDefinition
+
+    cmd = COMMAND('foo', help='bar', method=squires)
+    self.assertEqual(('foo',), cmd.args)
+    self.assertEqual({'help': 'bar', 'method': squires}, cmd.kwargs)
+
+    root = squires.Command('one')
+    tree = {
+        COMMAND('two', help='Number two', method=squires): {}
+    }
+    squires.ParseTree(root, tree)
+    self.assertEqual('Number two', root['two'].help)
+
+    root = squires.Command('<root>')
+    tree = {
+        COMMAND('one', help='Number one', method=squires): {
+            OPTION('fast', boolean=True, helptext='Quickly'): {},
+            OPTION('slow', boolean=True, helptext='Slowly'): {},
+        },
+        COMMAND('two', help='Number two', method=squires): {
+            COMMAND('three', help='Number three', method=squires): {}
+        }
+    }
+    squires.ParseTree(root, tree)
+    self.assertEqual('Number two', root['two'].help)
+    self.assertEqual('Number three', root['two']['three'].help)
+    self.assertTrue(root['one'].options[0].helptext in ('Quickly', 'Slowly'))
+    self.assertTrue(root['one'].options[1].helptext in ('Quickly', 'Slowly'))
+
+  def testPipe(self):
+    class testPipe(squires.pipe.Pipe):
+      pass
+
+    COMMAND = squires.CommandDefinition
+    PIPE = squires.PipeDefinition
+    PIPETREE = squires.PipeTreeDefinition
+    pipe1 = {
+        PIPE('grep', pipe=testPipe()): {}
+    }
+    tree = {
+        COMMAND('one', method=squires, help='ONE'): {
+            PIPETREE(tree=pipe1): {},
+        },
+        COMMAND('two', method=squires, help='TWO'): {
+            PIPETREE(tree=pipe1): {},
+            COMMAND('four', method=squires, help='FOUR'): {},
+        },
+        COMMAND('three', method=squires, help='THREE'): {}
+    }
+    # Test that pipes get added to the tree, and can be found.
+    root = squires.Command('<root>')
+    squires.ParseTree(root, tree)
+    self.assertEqual(None, root['three'].GetPipeTree())
+    self.assertEqual('grep', root['one'].GetPipeTree()['grep'].name)
+    self.assertTrue(isinstance(root['one'].GetPipeTree()['grep'].pipe,
+                               testPipe))
+
+    # Test 'WillPipe()'
+    self.assertTrue(root['two']['four'].WillPipe(
+        ['two', 'four', squires.PIPE_CHAR, 'grep']))
+    self.assertFalse(root['two']['four'].WillPipe(
+        ['two', 'four', 'grep']))
 
 
 if __name__ == '__main__':

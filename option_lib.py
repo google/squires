@@ -20,6 +20,7 @@ import inspect
 import os
 import re
 
+
 class Option(object):
   """An option to a command.
 
@@ -97,14 +98,14 @@ class Option(object):
         raise ValueError(
             'With is_path, position or keyvalue must be supplied')
       self.matcher = PathMatch(
-          match, only_existing=self.only_valid_paths,
+          match, self, only_existing=self.only_valid_paths,
           default_path=path_dir, only_dirs=only_dir_paths)
     elif isinstance(match, str):
       self.matcher = RegexMatch(match, helptext, self)
     elif isinstance(match, (tuple, set, list)):
-      self.matcher = ListMatch(match, helptext)
+      self.matcher = ListMatch(match, helptext, self)
     elif isinstance(match, dict):
-      self.matcher = DictMatch(match)
+      self.matcher = DictMatch(match, self)
     elif inspect.isroutine(match):
       self.matcher = MethodMatch(match, self)
     elif match is None:
@@ -171,16 +172,13 @@ class Option(object):
     """Get all possible matches for the command.
 
     Args:
-      command: A list of strings or a string, the command line's options.
-      position: An int, the position in the command line.
+      token: A string, the token to get matches for.
 
     Returns:
       A dict of possible matches. Keys are the match string,
         values are help text for each.
     """
-    if token == ' ':
-      token = ''
-    return self.matcher.GetValidMatches(token)
+    return self.matcher.GetValidMatches(token.strip())
 
 
 class BaseMatch(object):
@@ -190,26 +188,42 @@ class BaseMatch(object):
     reason: A str, the reason that a match failed.
   """
   MATCH = None
-  def __init__(self, *args):
+  def __init__(self):
     """Override."""
     self.reason = None
 
   def Matches(self, token):
-    """Returns whether 'token' matches."""
+    """Returns whether 'token' matches.
+
+    Args:
+      token: A str, the token to match.
+
+    Returns:
+      A boolean. True if the token matches.
+    """
     return len(self.GetValidMatches(token)) > 0
 
   def GetMatch(self, token):
     """Attempt to match 'token' to this object.
 
-    If no match, returns None.
-    If one full match, returns the best match, expanded as best as possible.
-    If multiple partial matches, TODO(bbuxton): Define behaviour
+    Args:
+      token: A str, the token to match.
+
+    Returns:
+      A str, the best available match. If no matches at all, return None.
+    TODO(bbuxton): Define behaviour is multiple partial matches.
   """
 
   def GetValidMatches(self, token=None):
     """Returns the valid matches for the given token.
 
-    If token is None, return all valid completions.
+    Args:
+      token: A str, the token to match.
+
+    Returns:
+      A dict. Keys are the valid tokens that might match. Values are
+        any associated helptext. If token is None, all possible
+        completions are returned.
     """
     return {}
 
@@ -217,6 +231,7 @@ class BaseMatch(object):
 class BooleanMatch(BaseMatch):
   """An option that matches on a boolean."""
   MATCH = 'boolean'
+
   def __init__(self, value, helptext):
     """Initialise object.
 
@@ -224,6 +239,7 @@ class BooleanMatch(BaseMatch):
       value: A str, the value this option matches.
       helptext: A str, the helptext for this option.
     """
+    BaseMatch.__init__(self)
     self.match = value
     self.helptext = helptext
     self.reason = None
@@ -243,6 +259,7 @@ class BooleanMatch(BaseMatch):
 class RegexMatch(BaseMatch):
   """An option that matches on a list."""
   MATCH = 'regex'
+
   def __init__(self, value, helptext, option):
     """Initialise object.
 
@@ -251,6 +268,7 @@ class RegexMatch(BaseMatch):
       helptext: A str, the helptext for this option.
       option: The Option() associated with this match.
     """
+    BaseMatch.__init__(self)
     self.match = re.compile('^%s' % value, re.I)
     self.match_str = value
     self.helptext = helptext
@@ -268,8 +286,8 @@ class RegexMatch(BaseMatch):
   def GetValidMatches(self, token=None):
     if not token:
       # No token, return regex we expect.
-      return {'<%s>' % self.match_str: '%s' % (
-          self.helptext)}
+      helpstr = '%s (%s)' % (self.helptext, self.match_str)
+      return {'<%s>' % self.option.name: helpstr}
 
     if self.match.match(token):
       # Token matches, return it and help string.
@@ -281,16 +299,19 @@ class RegexMatch(BaseMatch):
 class ListMatch(BaseMatch):
   """An option that matches on a list."""
   MATCH = 'list'
-  def __init__(self, value, helptext):
+  def __init__(self, value, helptext, option):
     """Initialise object.
 
     Args:
       value: A list of strings, valid matches.
       helptext: A str, the helptext for this option.
+      option: An Option(), the associated option for this match.
     """
+    BaseMatch.__init__(self)
     self.match = value
     self.helptext = helptext
     self.reason = None
+    self.option = option
 
   def GetMatch(self, token):
     self.reason = None
@@ -318,6 +339,8 @@ class ListMatch(BaseMatch):
     for item in self.match:
       if not token or item.startswith(token):
         matches[item] = ''
+        if self.option.default == item:
+          matches[item] = '[Default]'
 
     return matches
 
@@ -325,20 +348,26 @@ class ListMatch(BaseMatch):
 class DictMatch(ListMatch):
   """An option that matches on a dict."""
   MATCH = 'dict'
-  def __init__(self, value):
+
+  def __init__(self, value, option):
     """Initialise object.
 
     Args:
       matches: A dict of matches. Keys are tokens, values are helptext.
+      option: The  Option() this match is for.
     """
+    ListMatch.__init__(self, value, '', option)
     self.match = value
     self.reason = None
+    self.option = option
 
   def GetValidMatches(self, token=None):
     matches = {}
     for item, helptext in self.match.iteritems():
       if not token or item.startswith(token):
         matches[item] = helptext
+        if self.option.default == item:
+          matches[item] += ' [Default]'
 
     return matches
 
@@ -346,6 +375,7 @@ class DictMatch(ListMatch):
 class MethodMatch(DictMatch):
   """An option that matches on a method."""
   MATCH = 'method'
+
   def __init__(self, method, option):
     """Constructor.
 
@@ -354,15 +384,20 @@ class MethodMatch(DictMatch):
         must return a dict of valid matches:helptext.
       option: The related 'Option' object
     """
+    DictMatch.__init__(self, '', option)
     self.method = method
     self.option = option
 
   def GetValidMatches(self, token=None):
+    self.match = {}
     match = self.method(self.option)
     if isinstance(match, list):
-      self.match = {}
       for item in match:
         self.match[item] = ''
+        if item == self.option.default:
+          self.match[item] += ' [Default]'
+    elif isinstance(match, str):
+      self.match[match] = ''
     else:
       self.match = match
     return super(MethodMatch, self).GetValidMatches(token)
@@ -371,11 +406,24 @@ class MethodMatch(DictMatch):
 class PathMatch(BaseMatch):
   """An option matching a file path."""
   MATCH = 'path'
-  def __init__(self, matches, only_existing=False,
+  def __init__(self, matches, option, only_existing=False,
                default_path=None, only_dirs=False):
+    """Constructor.
+
+    Args:
+      matches: A str, the regex this path should match.
+      option: The Option() this match is associated with.
+      only_existing: A boolean. If True, only existing paths will
+        match.
+      default_path: A str, the default path to search for matching
+        files.
+      only_dirs: A boolean. If true, only match directories.
+    """
+    BaseMatch.__init__(self)
     self.only_existing = only_existing
     self.default_path = default_path
     self.only_dirs = only_dirs
+    self.option = option
     if matches is None:
       self.match_re = re.compile('.*')
     else:
@@ -386,13 +434,6 @@ class PathMatch(BaseMatch):
         self.default_path += os.sep
 
   def Matches(self, token):
-    """Returns whether the token matches this option.
-
-    When 'only_existing' is false, always return true.
-
-    Otherwise returns true only if the token is an
-    exact match for an existing file.
-    """
     token = token.strip()
     if not token:
       return False  # Empty never matches
@@ -401,24 +442,19 @@ class PathMatch(BaseMatch):
       return True  # Always match in this case
 
     matches = self.GetValidMatches(token)
-    if token in matches:
-      return True
-    return False
+    return token in matches
 
   def GetMatch(self, token):
-    """Returns matching filename."""
     if not self.only_existing:
       return token  # Always match whats supplied
 
-    matches = self.GetValidMatches()
-    if token in matches:
+    if token in self.GetValidMatches():
       # Valid file, return it.
       return token
     # Invalid file, no match.
     return None
 
   def GetValidMatches(self, token=None):
-    """Returns all valid filenames that match the token."""
     valid_files = []
     if token == ' ' or not token:
       token = ''
@@ -454,5 +490,7 @@ class PathMatch(BaseMatch):
     ret = {}
     for filename in valid_files:
       ret[filename] = ''
+    if self.option.default:
+      ret[self.option.default] = '[Default]'
 
     return ret
