@@ -63,12 +63,14 @@ class Option(object):
         internally by Squires.
     arg_val: An Option(), the 'value' option of a key/value option pair. Used
         internally by Squires.
+    meta: Any object type. Meta information that can be stored by the calling
+      program for reference later.
   """
 
   def __init__(self, name, boolean=None, keyvalue=False, required=False,
                helptext=None, match=None, default=None, group=None, position=-1,
                is_path=False, only_valid_paths=False, hidden=False,
-               only_dir_paths=False, path_dir=None):
+               only_dir_paths=False, path_dir=None, meta=None):
     self.name = name
     self.helptext = helptext
     self.boolean = boolean
@@ -86,6 +88,7 @@ class Option(object):
     self.hidden = hidden
     self.matcher = None
     self._index = 0
+    self.meta = meta
     if match is not None and self.boolean is None:
       self.boolean = False
 

@@ -145,6 +145,11 @@ class Adventure(object):
     for item, count in self.inventory.iteritems():
       self.SlowPrint('%d# %s(s)' % (count, item))
 
+  def Fight(self, command, unused_command):
+    self.SlowPrint('Fighting %s with a %s...' % (
+        command.GetOption('enemy'),
+        command.GetOption('weapon')))
+
 
 class CmdRoot(squires.Command):
   """The root of the command tree."""
@@ -201,8 +206,13 @@ def main(unused_argv):
           ),
       COMMAND('look', help='Look around the room', method=adventure.Look): (
           OPTION('direction', helptext='Direction to look',
-                 boolean=False, match='\w+', default='up'
-                ),
+                 boolean=False, match='\w+', default='up'),
+          ),
+      COMMAND('fight', help='Fight an enemy', method=adventure.Fight): (
+          OPTION('enemy', helptext='Enemy to fight', boolean=False,
+                 keyvalue=True, match='\S+'),
+          OPTION('weapon', helptext='Weapon to use', boolean=False,
+                 keyvalue=False, match='\S+'),
           ),
       COMMAND('walk', help='Walk somewhere', method=adventure.Walk): (
           OPTION('direction', helptext='Direction to walk',

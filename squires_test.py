@@ -90,6 +90,9 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(self.cmd['show']['interface'].root, self.cmd)
     self.failUnlessEqual(self.cmd['show']['interface']['terse'].root, self.cmd)
 
+    self.failUnlessEqual(['show', 'interface', 'terse'],
+                         self.cmd['show']['interface']['terse'].path)
+
     # Verify that _AddAncestors() has worked.
     self.failUnlessEqual('write', self.cmd['write'].name)
     self.failUnlessEqual('file', self.cmd['write']['file'].name)
@@ -112,6 +115,9 @@ class CommandsTest(unittest.TestCase):
     command.ancestors = ['write']
     command.AddOption('now', helptext='Write it now')
     self.cmd.Attach(command)
+
+    self.failUnlessEqual('now', command.options.GetOptionObject('now').name)
+    self.failUnlessEqual(None, command.options.GetOptionObject('unknown'))
 
     self.failUnlessEqual('write', self.cmd['write'].name)
     self.failUnlessEqual('file', self.cmd['write']['file'].name)
@@ -261,6 +267,12 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'tes', 'le']),
         ['show', 'interface', 'test', 'level'])
+    self.failUnlessEqual(
+        self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge1']),
+        ['show', 'interface', 'intf', 'ge1'])
+    self.failUnlessEqual(
+        self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge']),
+        ['show', 'interface', 'intf', 'ge'])
 
   def testRequired(self):
     """Test required options."""
@@ -271,11 +283,17 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('detailed', required=True, group='type')
     command.AddOption('terse', required=True, group='type')
     command.AddOption('lines', keyvalue=True, match='\d+')
+    command.AddOption('blah', boolean=False, match='\S+')
+    command.AddOption('frub', boolean=False, keyvalue=True, match='\S+')
 
     self.failIf(command.options.HasAllValidOptions([]))
     self.failIf(command.options.HasAllValidOptions(['detailed']))
     self.failIf(command.options.HasAllValidOptions(['detailed', 'terse']))
     self.failUnless(command.options.HasAllValidOptions(['detailed', 'req1']))
+
+    # make sure keyvalue pair doesnt get used for other options.
+    self.failUnless(command.options.HasAllValidOptions(
+        ['req1', 'detailed', 'frub', 'five', 'foobar']))
 
     # Duplicate option
     self.failIf(command.options.HasAllValidOptions(
@@ -388,12 +406,12 @@ class CommandsTest(unittest.TestCase):
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
 
     self.fake_buffer = 'sh'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show')
     self.fake_buffer = 'show vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version')
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version')
 
     self.fake_buffer = 'show version '
     self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), None)
@@ -402,7 +420,7 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('software')
     command.AddOption('hardware')
     self.fake_buffer = 'show version s'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software ')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software')
     squires.readline.get_line_buffer = get_line_buffer
 
   def testComplete(self):
@@ -580,8 +598,8 @@ class CommandsTest(unittest.TestCase):
          ' two                   TWO', '> t'],
         buf.getvalue().splitlines())
 
-    self.assertEqual('three ', root.ReadlineCompleter('', 0))
-    self.assertEqual('two ', root.ReadlineCompleter('', 1))
+    self.assertEqual('three', root.ReadlineCompleter('', 0))
+    self.assertEqual('two', root.ReadlineCompleter('', 1))
     self.assertEqual(None, root.ReadlineCompleter('', 2))
 
   def testParseTree(self):

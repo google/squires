@@ -50,7 +50,7 @@ import traceback
 import option_lib
 import pipe
 import readline
-COMPLETE_SUFFIX = ' '  # Builtin readline needs a suffix.
+COMPLETE_SUFFIX = ''
 
 
 SHOW_HIDDEN = False  # Force display of hidden commands and options.
@@ -100,6 +100,8 @@ class Command(dict):
     orig_ancestors: A list of strings, ancestors of this command.
     pipetree: A Command(), root of tree after a pipe. If none, there is
       no piping.
+    meta: Any object type. Meta information that can be stored by the calling
+      program for reference later.
   """
 
   def __init__(self, name='', help=None, runnable=None, method=None):
@@ -116,6 +118,7 @@ class Command(dict):
     self.prompt = '> '
     self.method = method
     self.pipetree = None
+    self.meta = None
 
     if runnable is None:
       # Set to 'True' if a method is supplied.
@@ -136,7 +139,8 @@ class Command(dict):
     """Prepares readline for our use. DEPRECATED."""
     print '(Squires warning) PrepareReadline() is deprecated and now a NoOp.'
 
-  def AddCommand(self, name, help=None, runnable=None, method=None, pipe=None):
+  def AddCommand(self, name, help=None, runnable=None, method=None, pipe=None,
+                 meta=None, hidden=False):
     """Convenience function to add a command to the tree.
 
     Returns the new Command() object, already added to the tree. Options
@@ -151,6 +155,10 @@ class Command(dict):
         method will be passed two arguments - the Command object ("self"), and
         the entire command line as a list of strings.
       pipe: A Command object, the pipe command tree. Currently unused.
+      meta: Any object. Meta information supplied by the squires user to
+        be used by it arbitrarily.
+      hidden: A boolean. If True, command does not show up in help or
+        tab completion.
 
     Returns:
       A Command() object.
@@ -159,6 +167,8 @@ class Command(dict):
     command = Command(name=name[-1], help=help, runnable=runnable,
                       method=method)
     command.ancestors = name[:-1]
+    command.meta = meta
+    command.hidden = hidden
     self.root.Attach(command)
     return command
 
@@ -195,6 +205,22 @@ class Command(dict):
     if self.parent is not None:
       return self.parent.GetPipeTree()
     return None
+
+  @property
+  def path(self):
+    """Fetches the path of this command.
+
+    Returns:
+      A list of str, the names of command objects from the root.
+    """
+    path = []
+    cmd = self
+    while cmd.parent:
+      path.append(cmd.name)
+      cmd = cmd.parent
+
+    path.reverse()
+    return path
 
   def WillPipe(self, line):
     """Returns whether this line will be piped.
@@ -586,6 +612,10 @@ class Command(dict):
 
     self[ancestors[0]].Attach(command_object)
 
+  def GetOptionObject(self, option_name):
+    """Fetches the named option object."""
+    return self.options.GetOptionObject(option_name)
+
   def GetOption(self, option_name):
     """Fetches an option from command line. See Options().GetOption()."""
     return self.options.GetOption(self.command_line, option_name)
@@ -660,6 +690,19 @@ class Options(list):
   def __init__(self, *args):
     super(Options, self).__init__(*args)
     self.command = None
+
+  def GetOptionObject(self, name):
+    """Fetches the Option object for the given option name.
+
+    Args:
+      name: A str, the option name to fetch.
+
+    Returns:
+      An Option(), the option requested. None if the name is not found.
+    """
+    for option in self:
+      if option.name == name:
+        return option
 
   def AddOption(self, name, **kwargs):
     """Adds an option to this command.
@@ -745,7 +788,12 @@ class Options(list):
       The option value, if set (string or True), else None.
     """
     found_tokens = []
+    option_values = {}
+    # Parse complete line for all options, then return
+    # the one that matches.
     for option in self:
+      if option.arg_key is not None:
+        continue  # Skip keyvalue args in this loop.
       for tok_index in xrange(len(command_line)):
         if tok_index in found_tokens:
           # Matched earlier, skip.
@@ -753,15 +801,19 @@ class Options(list):
         if option.Matches(command_line, tok_index):
           # Found the option.
           found_tokens.append(tok_index)
-          if option.name == option_name:
-            if option.arg_val is not None:
-              # Option has an arg token, match on it.
-              return option.arg_val.Match(command_line, tok_index+1)
-            return option.Match(command_line, tok_index)
-      # Option not on command line. If is has default, return that.
-      if option.name == option_name and option.default:
-        return option.default
-    return None
+          if option.arg_val is not None:
+            # Option has an arg token, match on it.
+            value = option.arg_val.Match(command_line, tok_index+1)
+            found_tokens.append(tok_index+1)  # Also found the value arg.
+          else:
+            value = option.Match(command_line, tok_index)
+          option_values[option.name] = value
+          break
+      else:
+        # Option not on command line. If is has default, return that.
+        if option.name == option_name and option.default:
+          option_values[option.name] = option.default
+    return option_values.get(option_name)
 
   def GetGroupOption(self, command_line, group):
     """Fetches set options in a group.
@@ -849,28 +901,33 @@ class Options(list):
         are found. The second is a list of groups with a matched
         option.
     """
-    found_groups = set()
+    found_tokens = []
     found_options = []
-
-    matched_tokens = []
+    found_groups = []
     for option in self:
-      # For each option, search the command line for its presence.
       for idx, token in enumerate(line):
         if idx == len(line)-1 and token != ' ':
+          # Skip if last token is still being typed.
           break
-        if idx in matched_tokens:
-          continue  # Match a token only once.
+        if idx in found_tokens:
+          # Matched earlier, skip.
+          continue
         if option.Matches(line, idx):
-          if (option.arg_key is not None and not
-              option.arg_key.Matches(line, idx-1)):
-            # Ignore this option if it matches a keyvalue 'value',
-            # but the previous token is not the key part.
-            continue
-          matched_tokens.append(idx)
-          found_options.append(option.name)
-          if option.group:
-            found_groups.add(option.group)
+          # Found the option.
+          found_tokens.append(idx)
+          if option.arg_val is not None:
+            # Option has an arg token, match on it.
+            value = option.arg_val.Match(line, idx+1)
+            found_tokens.append(idx+1)  # Also found the value arg.
+          else:
+            value = option.Match(line, idx)
+          if value:
+            found_options.append(option.name)
+          if option.group and option.group not in found_groups:
+            found_groups.append(option.group)
+          break
     return (found_options, found_groups)
+
 
   def GetOptionCompletes(self, line):
     """Fetches option completions.
@@ -1003,6 +1060,8 @@ class Options(list):
     # Now go through each option.
     for option in self:
       found_option = False
+      if option.arg_key:
+        continue
       # Go through command line to find the option.
       for token_index, token in enumerate(command):
         if (token_index in matched_tokens or not
@@ -1020,10 +1079,6 @@ class Options(list):
             for arg in matches:
               print ' %s' % arg
           return False
-        # If option is a keyvalue key, make sure itmatches previous token.
-        if option.arg_key is not None:
-          if not option.arg_key.Matches(command, token_index-1):
-            continue
         matched_tokens.append(token_index)
         # Token a valid option, remove from unknown list.
         if token in unknown_tokens:
@@ -1057,14 +1112,18 @@ class Options(list):
             else:
               print
             return False
-          matches = option.arg_val.GetMatches(command[token_index+1])
-          if len(matches) != 1:
+          tok = command[token_index+1]
+          matches = option.arg_val.GetMatches(tok)
+          if len(matches) != 1 and tok not in matches:
             if describe:
-              print '%% Multple matches for "%s" argument "%s":' % (
-                  option.name, command[token_index+1])
+              print '%% Multiple matches for "%s" argument "%s":' % (
+                  option.name, tok)
               for arg in matches:
                 print ' %s' % arg
             return False
+          # Mark the next token (the value of the pair) as checked.
+          matched_tokens.append(token_index+1)
+          unknown_tokens.remove(command[token_index+1])
         # Required group option.
         if option.required and option.group:
           if option.group in missing_groups:
@@ -1206,8 +1265,8 @@ DEFAULT_PIPETREE = {
                 required=True),
     ),
     _PIPE('except', help='Except a string', pipe=pipe.ExceptPipe()): (
-       _OPTION('string', helptext='String to exclude', match='\S',
-               required=True),
+        _OPTION('string', helptext='String to exclude', match='\S',
+                required=True),
     ),
     _PIPE('count', help='Count lines', pipe=pipe.CountPipe()): {},
     _PIPE('sh', help='pipe to shell command', pipe=pipe.ShellPipe()): (
