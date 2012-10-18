@@ -288,6 +288,7 @@ class Command(dict):
       return
 
     try:
+      self._SaveHistory()
       self.Execute(split_line)
     except (KeyboardInterrupt, EOFError), e:
       # Catch ctrl-c and eof and pass up.
@@ -296,6 +297,8 @@ class Command(dict):
       # Other exceptions whilst running command have trace
       # printed, then back to the prompt.
       traceback.print_exc(file=sys.stdout)
+    finally:
+      self._RestoreHistory()
 
   def ReadlineCompleter(self, unused_word, state):
     """Readline completion handler.
@@ -318,7 +321,7 @@ class Command(dict):
       print self.prompt + readline.get_line_buffer(),
       return None
     candidates = []
-    for cand in initial_candidates:
+    for cand in sorted(initial_candidates):
       candidates.append(cand + COMPLETE_SUFFIX)  # Add space after the token.
       if cand.startswith('<'):
         # Make an additional dummy candidate to force
@@ -624,6 +627,30 @@ class Command(dict):
     """Fetches set options in a group. See Options().GetGroupOption()."""
     return self.options.GetGroupOption(self.command_line, group)
 
+  def GetCommand(self, cmdline):
+    """Returns the command object for the given commandline.
+
+    Args:
+      cmdline: A list of str, the command line at this point.
+
+    Returns:
+      A command object, the command object for the given command.
+    """
+    # Expand the command line out.
+    self.command_line = self.Disambiguate(cmdline, prefer_exact_match=True)
+
+    if self.WillPipe(cmdline) and cmdline[0] == PIPE_CHAR:
+      # Retain pipe at the start.
+      self.command_line = [PIPE_CHAR] + self.command_line
+
+    # If command line is empty at this point, or the next option
+    # is not a valid subcommand, we run it locally.
+    if len(self.command_line) < 1 or self.command_line[0] not in self:
+      return self
+
+    # First command line token is a subcommand, pass down.
+    return self[self.command_line[0]].GetCommand(self.command_line[1:])
+
   def Execute(self, command):
     """Executes the command given.
 
@@ -642,42 +669,44 @@ class Command(dict):
     Returns:
       The value returned by a command's 'Run' method. Else None.
     """
-
-    # Expand the command line out.
-    self.command_line = self.Disambiguate(command, prefer_exact_match=True)
-
-    if self.WillPipe(command) and command[0] == PIPE_CHAR:
-      # Retain pipe at the start.
-      self.command_line = [PIPE_CHAR] + self.command_line
-
-    # If command line is empty at this point, or the next option
-    # is not a valid subcommand, we run it locally.
-    if len(self.command_line) < 1 or self.command_line[0] not in self:
-      if self.options.HasAllValidOptions(self.command_line, describe=True):
-        print '\r',  # Backspace due to a readline quirk adding spurious space.
-        if self.WillPipe(self.command_line):
-          retval = None
-          first, last = pipe.SplitByPipe(self.command_line)
-          # Run "<pipecmd> start" to init pipe.
-          if self.GetPipeTree().Execute(last + ['start']):
-            try:
-              retval = self.Run(self.command_line)
-            finally:
-              # Run "<pipecmd> stop" to close pipe.
-              self.GetPipeTree().Execute(last + ['stop'])
-          return retval
-        else:
-          return self.Run(self.command_line)
-      return False
-
-    # First command line token is a subcommand, pass down.
-    return self[self.command_line[0]].Execute(self.command_line[1:])
+    cmd = self.GetCommand(command)
+    if cmd.options.HasAllValidOptions(cmd.command_line, describe=True):
+      print '\r',  # Backspace due to a readline quirk adding spurious space.
+      if cmd.WillPipe(cmd.command_line):
+        retval = None
+        last = pipe.SplitByPipe(cmd.command_line)[1]
+        # Run "<pipecmd> start" to init pipe.
+        if cmd.GetPipeTree().Execute(last + ['start']):
+          try:
+            retval = cmd.Run(cmd.command_line)
+          finally:
+            # Run "<pipecmd> stop" to close pipe.
+            cmd.GetPipeTree().Execute(last + ['stop'])
+        return retval
+      else:
+        return cmd.Run(cmd.command_line)
+    return False
 
   def Run(self, command):
     """Run the given command."""
     if self.method is not None:
       return self.method(self, command)
     print '%% Incomplete command.'
+
+  def _SaveHistory(self):
+    """Save readline history then clear history."""
+    self._saved_history = []
+    for idx in xrange(1, readline.get_current_history_length()+1):
+      self._saved_history.append(readline.get_history_item(idx))
+    for idx in xrange(readline.get_current_history_length()):
+      readline.remove_history_item(0)
+
+  def _RestoreHistory(self):
+    """Restore readline history saved in SaveHistory."""
+    for idx in xrange(readline.get_current_history_length()):
+      readline.remove_history_item(0)
+    for item in self._saved_history:
+      readline.add_history(item)
 
 
 class Options(list):

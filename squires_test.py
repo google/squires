@@ -401,6 +401,28 @@ class CommandsTest(unittest.TestCase):
   def FakeReadlineGetBuffer(self):
     return self.fake_buffer
 
+  def testReadlineHistorySaving(self):
+    for _ in xrange(squires.readline.get_current_history_length()):
+      squires.readline.remove_history_item(0)
+
+    cmd = squires.Command()
+    cmd._SaveHistory()
+    self.assertEqual([], cmd._saved_history)
+    cmd._RestoreHistory()
+    self.assertEqual(0, squires.readline.get_current_history_length())
+    squires.readline.add_history('command one')
+    squires.readline.add_history('command two')
+    squires.readline.add_history('command three')
+    cmd._SaveHistory()
+    self.assertEqual(['command one', 'command two', 'command three'],
+                     cmd._saved_history)
+    self.assertEqual(0, squires.readline.get_current_history_length())
+    # Child command history item, should be removed.
+    squires.readline.add_history('command four')
+    cmd._RestoreHistory()
+    self.assertEqual(3, squires.readline.get_current_history_length())
+    self.assertEqual('command one', squires.readline.get_history_item(1))
+
   def testReadlineCompleter(self):
     get_line_buffer = squires.readline.get_line_buffer
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
