@@ -616,7 +616,7 @@ class Command(dict):
     self[ancestors[0]].Attach(command_object)
 
   def GetOptionObject(self, option_name):
-    """Fetches the named option object."""
+    """Fetches the named option object. See Options.GetOptionObject()."""
     return self.options.GetOptionObject(option_name)
 
   def GetOption(self, option_name):
@@ -733,6 +733,26 @@ class Options(list):
       if option.name == name:
         return option
 
+  def remove(self, key):
+    """Override parent remove.
+
+    Args:
+      key: A str or Option, the option to remove, or its name.
+
+    Raises:
+      ValueError, if the item is not present.
+    """
+    new = []
+    if isinstance(key, option_lib.Option):  # Remove by object.
+      key = key.name
+    for option in self:
+      if option.name != key:
+        new.append(option)
+        break
+    else:
+      raise ValueError('%s not in list' % key)
+    self[:] = new
+
   def AddOption(self, name, **kwargs):
     """Adds an option to this command.
 
@@ -746,12 +766,12 @@ class Options(list):
     """
     # First, see if this is a replacement for an existing option,
     # and if so, remove it.
-    for option in self[:]:
-      if option.name == name:
-        self.remove(option)
-        if option.arg_val is not None:
-          # Also remove keyvalue "value" option.
-          self.remove(option.arg_val)
+    existing = self.GetOptionObject(name)
+    if existing is not None:
+      if existing.arg_val is not None:
+        # Also remove keyvalue "value" option.
+        self.remove(existing.arg_val.name)
+      self.remove(existing.name)
 
     kwargs['name'] = name
     default = kwargs.get('default')
@@ -791,16 +811,8 @@ class Options(list):
       option.default = default
       self.append(optionv)
 
-    # Now re-order the options so that non-boolean ones come last.
-    options = Options()
-    options.command = self.command
-    for option in self:
-      if option.matcher.MATCH == 'boolean':
-        options.append(option)
-    for option in self:
-      if option.matcher.MATCH != 'boolean':
-        options.append(option)
-    self[:] = options
+    # Now re-order the options so that non-boolean/dict/list ones come last.
+    self.sort()
 
   def GetOption(self, command_line, option_name):
     """Fetches an option from command line.
@@ -816,33 +828,14 @@ class Options(list):
     Returns:
       The option value, if set (string or True), else None.
     """
-    found_tokens = []
-    option_values = {}
-    # Parse complete line for all options, then return
-    # the one that matches.
-    for option in self:
-      if option.arg_key is not None:
-        continue  # Skip keyvalue args in this loop.
-      for tok_index in xrange(len(command_line)):
-        if tok_index in found_tokens:
-          # Matched earlier, skip.
-          continue
-        if option.Matches(command_line, tok_index):
-          # Found the option.
-          found_tokens.append(tok_index)
-          if option.arg_val is not None:
-            # Option has an arg token, match on it.
-            value = option.arg_val.Match(command_line, tok_index+1)
-            found_tokens.append(tok_index+1)  # Also found the value arg.
-          else:
-            value = option.Match(command_line, tok_index)
-          option_values[option.name] = value
-          break
-      else:
-        # Option not on command line. If is has default, return that.
-        if option.name == option_name and option.default:
-          option_values[option.name] = option.default
-    return option_values.get(option_name)
+    # Get options set on command line, return value if there's a match.
+    for option, value in self._FindOptions(command_line)[0].iteritems():
+      if option.name == option_name:
+        return value
+
+    # Not on command line. Look for default (may be None).
+    option = self.GetOptionObject(option_name)
+    return option and option.default or None
 
   def GetGroupOption(self, command_line, group):
     """Fetches set options in a group.
@@ -919,6 +912,15 @@ class Options(list):
         required_groups.add(option.group)
     return required_groups
 
+  def _GetRequiredOptions(self):
+    """Returns required options in this option set."""
+    required_options = set()
+    # Build a list of required options.
+    for option in self:
+      if option.required and not option.group:
+        required_options.add(option.name)
+    return required_options
+
   def _FindOptions(self, line):
     """Find options present on the command line.
 
@@ -926,37 +928,34 @@ class Options(list):
       line: A list of str, the command line.
 
     Returns:
-      A tuple of lists. The first list is a list of options that
-        are found. The second is a list of groups with a matched
-        option.
+      A tuple. The first element is a dict of options that
+        are found, keyed by option, value is option value. The
+        second is a list of group names with a matched option.
     """
-    found_tokens = []
-    found_options = []
+    found_options = {}
     found_groups = []
-    for option in self:
-      for idx, token in enumerate(line):
-        if idx == len(line)-1 and token != ' ':
-          # Skip if last token is still being typed.
-          break
-        if idx in found_tokens:
-          # Matched earlier, skip.
+
+    idx = 0
+    while idx < len(line):
+      token = line[idx]
+      for option in self:
+        if option.name in found_options:
+          continue
+        if option.arg_key is not None:
+          # Value of key-value, matches separately.
           continue
         if option.Matches(line, idx):
-          # Found the option.
-          found_tokens.append(idx)
           if option.arg_val is not None:
-            # Option has an arg token, match on it.
             value = option.arg_val.Match(line, idx+1)
-            found_tokens.append(idx+1)  # Also found the value arg.
+            idx += 1  # Also found value arg.
           else:
             value = option.Match(line, idx)
-          if value:
-            found_options.append(option.name)
+          found_options[option] = value
           if option.group and option.group not in found_groups:
             found_groups.append(option.group)
           break
+      idx += 1
     return (found_options, found_groups)
-
 
   def GetOptionCompletes(self, line):
     """Fetches option completions.
@@ -984,14 +983,20 @@ class Options(list):
 
     # found options are options which are found.
     # Seem groups are groups for which a member was seen.
-    found_options, seen_groups = self._FindOptions(line)
+    # Skip last token if still being typed.
+    if last_token != ' ':
+      find_line = line[:-1]
+    else:
+      find_line = line
+    found_options, seen_groups = self._FindOptions(find_line)
+
     # Ensure has all the required options present.
     has_required = self.HasAllValidOptions(line[:-1])
 
     def _SkipOption(option, line):
       """Determines whether to skip the given option."""
       if (
-          (option.name in found_options) or  # Already have this option.
+          (option in found_options) or  # Already have this option.
           (option.hidden and not SHOW_HIDDEN) or  # Dont show hidden options.
           (option.group in seen_groups) or  # Already have a group member.
           # Position is not valid at this token.
@@ -1068,72 +1073,65 @@ class Options(list):
     Returns:
       bool, whether all options are valid.
     """
-    missing_options = set()
-    # All required are missing until they are seen.
-    missing_groups = self._GetRequiredGroups()
-
-    # Duplicate options in a group.
-    group_dupes = set()
-
-    found_options = []
-
     # Strip out anything from a pipe, this method should only check
     # on the left side of a pipe.
     if self.command.WillPipe(command):
       command = pipe.SplitByPipe(command)[0]
 
-    # All tokens are unknown. We will remove them as we find known ones.
-    unknown_tokens = list(command)
-    matched_tokens = []
+    # All required are missing until they are seen.
+    missing_options = self._GetRequiredOptions()
+    missing_groups = self._GetRequiredGroups()
+    # Note which options are already matched on the command line.
+    found_options = []
+    # Note tokens which do not have any match.
+    unknown_tokens = []
 
-    # Now go through each option.
-    for option in self:
-      found_option = False
-      if option.arg_key:
-        continue
-      # Go through command line to find the option.
-      for token_index, token in enumerate(command):
-        if (token_index in matched_tokens or not
-            option.Matches(command, token_index)):
-          # Token already matched, or doesnt match.
+    idx = 0
+    while idx < len(command):
+      token = command[idx]
+      # Find option matching this token.
+      for option in self:
+        if option.name in found_options:
+          # Already found this option.
           continue
-        # Fetch all matching variants of this option.
+
+        if option.arg_key:
+          # Keyvalue args are not checked here.
+          continue
+
+        if not option.Matches(command, idx):
+          # Option does not match anyway.
+          continue
+
+        found_options.append(option.name)
         matches = option.GetMatches(token)
+
+        # A 'multiple match' error is displayed unless the
+        # token is an exact match for one of the candidates.
         if len(matches) != 1 and token not in matches:
-          # A 'multiple match' error is displayed unless the
-          # token is an exact match for one of the candidates.
           if describe:
             print '%% Multiple matches for "%s" argument "%s":' % (
                 option.name, token)
             for arg in matches:
               print ' %s' % arg
           return False
-        matched_tokens.append(token_index)
-        # Token a valid option, remove from unknown list.
-        if token in unknown_tokens:
-          unknown_tokens.remove(token)
+
         # If a path option, check for existance if 'only_valid_paths'.
         if option.is_path and option.only_valid_paths and not os.path.exists(
-            option.Match(command, token_index)):
+            option.Match(command, idx)):
           if describe:
-            print '%% File not found: %s' % option.Match(command, token_index)
+            print '%% File not found: %s' % option.Match(command, idx)
           return False
-        # If option already present, return error.
-        if option.name in found_options:
-          if describe:
-            print '%% Duplicate option: %s' % option.name
-          return False
-        found_options.append(option.name)
-        found_option = True
-        # Check key/value options have value option present. This is
-        # done by seeing if the next token matches the options
-        # 'arg_val' option.
+
+        # Check key/value options have value part present.
         if option.arg_val is not None:
-          if token_index == len(command) - 1:
+          if idx == len(command) - 1:
+            # EOF before the value part.
             if describe:
               print '%% Argument for option "%s" missing.' % option.name
             return False
-          if not option.arg_val.Matches(command, token_index+1):
+          if not option.arg_val.Matches(command, idx+1):
+            # Arg does not match.
             if describe:
               print '%% Invalid argument for option "%s".' % option.name,
             if option.arg_val.matcher.reason:
@@ -1141,7 +1139,7 @@ class Options(list):
             else:
               print
             return False
-          tok = command[token_index+1]
+          tok = command[idx+1]
           matches = option.arg_val.GetMatches(tok)
           if len(matches) != 1 and tok not in matches:
             if describe:
@@ -1150,46 +1148,37 @@ class Options(list):
               for arg in matches:
                 print ' %s' % arg
             return False
-          # Mark the next token (the value of the pair) as checked.
-          matched_tokens.append(token_index+1)
-          unknown_tokens.remove(command[token_index+1])
-        # Required group option.
-        if option.required and option.group:
-          if option.group in missing_groups:
-            # Un-mark group as missing.
-            missing_groups.remove(option.group)
-          else:
-            # Else mark it as duplicate group option.
-            group_dupes.add(option.group)
+          found_options.append(option.arg_val.name)
+          idx += 1  # Bump token index up to skip arg val.
 
-      # Missing required option (non-group).
-      if (option.required
-          and not option.group
-          and not found_option
-          and option.arg_key is None):
-        missing_options.add(option.name)
+        # Note missing groups or options.
+        if option.required and option.group in missing_groups:
+          missing_groups.remove(option.group)
+        elif (option.required and not option.group and
+              not option.arg_key and
+              option.name in missing_options):
+          missing_options.remove(option.name)
 
-    if missing_options or unknown_tokens or group_dupes or missing_groups:
+        # At this point a matching option is found. Break from
+        # looking for others.
+        break
+      else:
+        # No option found for this token.
+        unknown_tokens.append(token)
+
+      # Junp to next token on line, then repeat loop.
+      idx += 1
+
+    if unknown_tokens or missing_groups or missing_options:
       if describe:
-        if missing_options:
-          print '%% Missing option(s): %s' % ', '.join(missing_options)
         if unknown_tokens:
-          print '%% Unknown option(s): %s' % ', '.join(unknown_tokens)
-        if group_dupes:
-          # More than one group member, return error.
-          groupoptions = []
-          for option in self:
-            if option.group in group_dupes:
-              groupoptions.append(option.name)
-          print '%% Supply only one of: %s' % ', '.join(groupoptions)
+          print '%% Unknown/duplicate token(s): %s' % ', '.join(unknown_tokens)
         if missing_groups:
-          # Missing required group, return error.
-          groupoptions = []
-          for option in self:
-            if option.group in missing_groups:
-              groupoptions.append(option.name)
-          print '%% Missing one of: %s' % ', '.join(groupoptions)
+          print '%% Missing group(s): %s' % ', '.join(missing_groups)
+        if missing_options:
+          print '%% Missing options(s): %s' % ', '.join(missing_options)
       return False
+
     return True
 
 

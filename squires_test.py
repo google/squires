@@ -295,12 +295,6 @@ class CommandsTest(unittest.TestCase):
     self.failUnless(command.options.HasAllValidOptions(
         ['req1', 'detailed', 'frub', 'five', 'foobar']))
 
-    # Duplicate option
-    self.failIf(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'req1']))
-    # Duplicate group option
-    self.failIf(command.options.HasAllValidOptions(
-        ['detailed', 'terse', 'req1']))
     # Missing required group
     self.failIf(command.options.HasAllValidOptions(['req1']))
 
@@ -422,18 +416,23 @@ class CommandsTest(unittest.TestCase):
     cmd._RestoreHistory()
     self.assertEqual(3, squires.readline.get_current_history_length())
     self.assertEqual('command one', squires.readline.get_history_item(1))
+    self.assertEqual('command two', squires.readline.get_history_item(2))
+    self.assertEqual('command three', squires.readline.get_history_item(3))
 
   def testReadlineCompleter(self):
     get_line_buffer = squires.readline.get_line_buffer
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
 
     self.fake_buffer = 'sh'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show' +
+                         squires.COMPLETE_SUFFIX)
     self.fake_buffer = 'show vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version' +
+                         squires.COMPLETE_SUFFIX)
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version' +
+                         squires.COMPLETE_SUFFIX)
 
     self.fake_buffer = 'show version '
     self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), None)
@@ -442,7 +441,8 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('software')
     command.AddOption('hardware')
     self.fake_buffer = 'show version s'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software')
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software' +
+                         squires.COMPLETE_SUFFIX)
     squires.readline.get_line_buffer = get_line_buffer
 
   def testComplete(self):
@@ -620,8 +620,8 @@ class CommandsTest(unittest.TestCase):
          ' two                   TWO', '> t'],
         buf.getvalue().splitlines())
 
-    self.assertEqual('three', root.ReadlineCompleter('', 0))
-    self.assertEqual('two', root.ReadlineCompleter('', 1))
+    self.assertEqual('three' + squires.COMPLETE_SUFFIX, root.ReadlineCompleter('', 0))
+    self.assertEqual('two' + squires.COMPLETE_SUFFIX, root.ReadlineCompleter('', 1))
     self.assertEqual(None, root.ReadlineCompleter('', 2))
 
   def testParseTree(self):

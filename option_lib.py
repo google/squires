@@ -59,6 +59,9 @@ class Option(object):
         is not positional.
     hidden: A boolean, if True, the option does not tab complete. Note that the
         'value' of a keyvalue option will tab complete when the key is supplied.
+    freeform: A boolean. If True, the option is populated with all remaining
+        text on the command line. A command without a freeform option will
+        generate an error if unrecognisable text is entered.
     arg_key: An Option(), the 'key' option of a key/value option pair. Used
         internally by Squires.
     arg_val: An Option(), the 'value' option of a key/value option pair. Used
@@ -70,7 +73,8 @@ class Option(object):
   def __init__(self, name, boolean=None, keyvalue=False, required=False,
                helptext=None, match=None, default=None, group=None, position=-1,
                is_path=False, only_valid_paths=False, hidden=False,
-               only_dir_paths=False, path_dir=None, meta=None):
+               only_dir_paths=False, path_dir=None, freeform=False,
+               meta=None):
     self.name = name
     self.helptext = helptext
     self.boolean = boolean
@@ -87,6 +91,7 @@ class Option(object):
     self.arg_val = None
     self.hidden = hidden
     self.matcher = None
+    self.freeform = freeform
     self._index = 0
     self.meta = meta
     if match is not None and self.boolean is None:
@@ -103,6 +108,8 @@ class Option(object):
       self.matcher = PathMatch(
           match, self, only_existing=self.only_valid_paths,
           default_path=path_dir, only_dirs=only_dir_paths)
+    elif self.freeform:
+      self.matcher = FreeformMatch(self)
     elif isinstance(match, str):
       self.matcher = RegexMatch(match, helptext, self)
     elif isinstance(match, (tuple, set, list)):
@@ -183,6 +190,15 @@ class Option(object):
     """
     return self.matcher.GetValidMatches(token.strip())
 
+  def __cmp__(self, other):
+    """Comparison for sort.
+
+    ''regex' types generally come last, so this code will work
+    for now, but might be updated if there is a match type that
+    is lexographically later.
+    """
+    return cmp(self.matcher.MATCH, other.matcher.MATCH)
+
 
 class BaseMatch(object):
   """Base class for matching options.
@@ -214,7 +230,7 @@ class BaseMatch(object):
 
     Returns:
       A str, the best available match. If no matches at all, return None.
-    TODO(bbuxton): Define behaviour is multiple partial matches.
+    TODO(bbuxton): Define behaviour if multiple partial matches.
   """
 
   def GetValidMatches(self, token=None):
@@ -229,6 +245,22 @@ class BaseMatch(object):
         completions are returned.
     """
     return {}
+
+
+class FreeformMatch(BaseMatch):
+  def __init__(self, option):
+    self._option = option
+
+  def Matches(self, token):
+    return len(token) > 0
+
+  def GetMatch(self, token):
+    return token
+
+  def GetValidMatches(self, token=None):
+    if token:
+      return {token: '<text>'}
+    return {'<%s>' % self._option.name: '<text>'}
 
 
 class BooleanMatch(BaseMatch):
@@ -316,7 +348,45 @@ class ListMatch(BaseMatch):
     self.reason = None
     self.option = option
 
+  def _GetRegex(self, needle):
+    """If the string parameter embeds a regex, return the regex.
+
+    If the string is starting and ending with '/', it contains a regex. If so,
+    return the regex string. Otherwise return None.
+
+    Args:
+      needle: the string to search for a regex.
+
+    Returns:
+      Either a string, with the regex found, or None.
+    """
+    if len(needle) > 1 and needle.startswith('/') and needle.endswith('/'):
+      return needle.strip('/')
+
+  def Matches(self, token):
+    """Determine if this option matches the command string."""
+    for value in self.match:
+      if self._GetRegex(value):
+        if re.match(self._GetRegex(value), token):
+          return True
+      else:
+        if len(self.GetValidMatches(token)) > 0:
+          return True
+    return False
+
   def GetMatch(self, token):
+    """Get the best match for this token.
+
+    This does not take regex matches into account. The theory is that if you
+    are asking for the "best match" at this point, you aren't asking the
+    computer to do the impossible for you.
+
+    Args:
+      token: A string, the token to get matches for.
+
+    Returns:
+      A string containing the best match given the entered token.
+    """
     self.reason = None
     found_close_match = False
     close_matches = 0
@@ -340,7 +410,11 @@ class ListMatch(BaseMatch):
   def GetValidMatches(self, token=None):
     matches = {}
     for item in self.match:
-      if not token or item.startswith(token):
+      # We only return regexes if the match string is empty.
+      if self._GetRegex(item):
+        if not token:
+          matches[item] = ''
+      elif not token or item.startswith(token):
         matches[item] = ''
         if self.option.default == item:
           matches[item] = '[Default]'
@@ -365,9 +439,13 @@ class DictMatch(ListMatch):
     self.option = option
 
   def GetValidMatches(self, token=None):
+    """Returns the valid matches for the given token."""
     matches = {}
     for item, helptext in self.match.iteritems():
-      if not token or item.startswith(token):
+      # We only return regexes if the match string is empty.
+      if self._GetRegex(item) and (not token):
+        matches[item] = helptext
+      elif not token or item.startswith(token):
         matches[item] = helptext
         if self.option.default == item:
           matches[item] += ' [Default]'
@@ -390,8 +468,10 @@ class MethodMatch(DictMatch):
     DictMatch.__init__(self, '', option)
     self.method = method
     self.option = option
+    self.match = self.method(self.option)
 
   def GetValidMatches(self, token=None):
+    """Returns the valid matches for the given token."""
     self.match = {}
     match = self.method(self.option)
     if isinstance(match, list):

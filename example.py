@@ -150,6 +150,9 @@ class Adventure(object):
         command.GetOption('enemy'),
         command.GetOption('weapon')))
 
+  def Say(self, command, unused_command):
+    self.SlowPrint('You mutter, "%s".' % command.GetOption('words'))
+
 
 class CmdRoot(squires.Command):
   """The root of the command tree."""
@@ -221,6 +224,10 @@ def main(unused_argv):
           ),
       COMMAND('inventory', help='See your inventory',
               method=adventure.Inventory): {},
+      COMMAND('say', help='Say something', method=adventure.Say): (
+          OPTION('words', helptext='Words to say',
+                 match='\S.+', freeform=True),
+          ),
   }
 
   squires.ParseTree(cmd_tree, tree)

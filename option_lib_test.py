@@ -129,6 +129,24 @@ class MatchTest(unittest.TestCase):
     self.assertEqual({},
                      bm.GetValidMatches('wh'))
 
+  def testListRegexMatch(self):
+    bm = option_lib.ListMatch(['/wi*/', '/bo*/', 'foobar'], 'foo',
+                              option_lib.Option('foo'))
+    self.assertTrue(bm.Matches('w'))
+    self.assertTrue(bm.Matches('wi'))
+    self.assertTrue(bm.Matches('wiiiiiiiiiiii'))
+    self.assertTrue(bm.Matches('b'))
+    self.assertTrue(bm.Matches('bo'))
+    self.assertTrue(bm.Matches('booooooooooooooo'))
+    self.assertTrue(bm.Matches('foobar'))
+    self.assertFalse(bm.Matches('zzzzzzz'))
+
+    self.assertEqual('foobar', bm.GetMatch('fo'))
+    self.assertEqual(None, bm.GetMatch('wiii'))
+
+    self.assertEqual({'foobar': '', '/bo*/': '', '/wi*/': ''}, bm.GetValidMatches(''))
+    self.assertEqual({}, bm.GetValidMatches('booo'))
+
   def testDict(self):
     bm = option_lib.DictMatch(
         {'red': 'The colour red',
@@ -157,6 +175,33 @@ class MatchTest(unittest.TestCase):
                      bm.GetValidMatches(None))
     self.assertEqual({},
                      bm.GetValidMatches('wh'))
+
+  def testDictRegexMatch(self):
+    bm = option_lib.DictMatch(
+        {'foobar': 'foobar',
+         '/wi*/': 'hurray',
+         '/bo*/': 'booooo'}, option_lib.Option('foo'))
+
+    self.assertTrue(bm.Matches('foobar'))
+    self.assertTrue(bm.Matches('w'))
+    self.assertTrue(bm.Matches('wi'))
+    self.assertTrue(bm.Matches('wiiii'))
+    self.assertTrue(bm.Matches('b'))
+    self.assertTrue(bm.Matches('boooooo'))
+    self.assertFalse(bm.Matches('zzzzzzz'))
+
+    self.assertEqual({'foobar': 'foobar',
+                      '/wi*/': 'hurray',
+                      '/bo*/': 'booooo'},
+                     bm.GetValidMatches(None))
+    self.assertEqual({'foobar': 'foobar',
+                      '/wi*/': 'hurray',
+                      '/bo*/': 'booooo'},
+                     bm.GetValidMatches(''))
+    self.assertEqual({},
+                     bm.GetValidMatches('zzz'))
+    self.assertEqual({'foobar': 'foobar'},
+                     bm.GetValidMatches('fo'))
 
   def testMethod(self):
     def MatchMethod(option):
