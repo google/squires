@@ -331,10 +331,14 @@ class CommandsTest(unittest.TestCase):
     self.assertEqual(command.options[0], command.options[1].arg_key)
     self.assertTrue(command.options[0].matcher.MATCH == 'boolean')
 
-    self.assertTrue(command.options[0].Matches(['has', 'lines', '30'], 1))
-    self.assertTrue(command.options[1].Matches(['has', 'lines', '30'], 2))
-    self.assertFalse(command.options[0].Matches(['has', 'free', 'dd'], 1))
-    self.assertFalse(command.options[1].Matches(['has', 'free', 'dd'], 2))
+    self.assertTrue(command.options[0].FindMatches(
+        ['has', 'lines', '30'], 1).valid)
+    self.assertTrue(command.options[1].FindMatches(
+        ['has', 'lines', '30'], 2).valid)
+    self.assertFalse(command.options[0].FindMatches(
+        ['has', 'free', 'dd'], 1).valid)
+    self.assertFalse(command.options[1].FindMatches(
+        ['has', 'free', 'dd'], 2).valid)
 
     cmd = self.cmd['show']['interface']
     cmd.AddOption('name', keyvalue=True, match='ge.*')

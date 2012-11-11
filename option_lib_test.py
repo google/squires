@@ -29,46 +29,48 @@ class CommandsTest(unittest.TestCase):
     option = option_lib.Option(name='foo', helptext='bar')
     # Make sure Match picks up variants of the name
     # throughout the command line.
-    self.failUnless(option.Match(['foo'], None))
-    self.failUnless(option.Match(['foo', 'bar'], None))
-    self.failUnless(option.Match(['bar', 'foo'], None))
-    self.failUnless(option.Match(['fo'], None))
-    self.failUnless(option.Match(['f'], None))
-    self.failUnless(option.Match(['f', 'bar'], None))
-    self.failUnless(option.Match(['bar', 'f'], None))
-    self.failIf(option.Match(['baz'], None))
-    self.failIf(option.Match(['baz', 'bar'], None))
+    self.failUnlessEqual(1, option.FindMatches(['foo'], 0).count)
+    self.failUnlessEqual(1, option.FindMatches(['foo', 'bar'], 0).count)
+    self.failUnlessEqual(1, option.FindMatches(['bar', 'foo'], 1).count)
+    self.failUnlessEqual(1, option.FindMatches(['fo'], 0).count)
+    self.failUnlessEqual(1, option.FindMatches(['f'], 0).count)
+    self.failUnlessEqual(1, option.FindMatches(['f', 'bar'], 0).count)
+    self.failUnlessEqual(1, option.FindMatches(['bar', 'f'], 1).count)
+    self.failUnlessEqual(0, option.FindMatches(['baz'], 0).count)
+    self.failUnlessEqual(0, option.FindMatches(['baz', 'bar'], 0).count)
 
     # Do the same for regex match based non-boolean options.
     option = option_lib.Option(name='<aid>', boolean=False,
                                match='\d[a-z]\d', helptext='bar')
-    self.failUnlessEqual(option.Match(['2e2'], None), '2e2')
-    self.failUnlessEqual(option.Match(['foobar', '2e2'], None), '2e2')
-    self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), '2e2')
-    self.failUnlessEqual(option.Match(['e2e'], None), None)
-    self.failUnlessEqual(option.Match(['e2e', 'foo'], None), None)
+    self.failUnlessEqual(option.FindMatches(['2e2'], 0).value, '2e2')
+    self.failUnlessEqual(option.FindMatches(['foobar', '2e2'], 1).value, '2e2')
+    self.failUnlessEqual(option.FindMatches(['2e2', 'foobar'], 0).value, '2e2')
+    self.failUnlessEqual(option.FindMatches(['e2e'], 0).value, None)
+    self.failUnlessEqual(option.FindMatches(['e2e', 'foo'], 0).value, None)
 
     # And boolean regex based options.
     option = option_lib.Option(name='<aid>', boolean=True,
                                match='\d[a-z]\d', helptext='bar')
-    self.failUnlessEqual(option.Match(['2e2'], None), True)
-    self.failUnlessEqual(option.Match(['foobar', '2e2'], None), True)
-    self.failUnlessEqual(option.Match(['2e2', 'foobar'], None), True)
-    self.failUnlessEqual(option.Match(['e2e'], None), None)
-    self.failUnlessEqual(option.Match(['e2e', 'foo'], None), None)
+    self.failUnlessEqual(option.FindMatches(['2e2'], 0).value, True)
+    self.failUnlessEqual(option.FindMatches(['foobar', '2e2'], 1).value, True)
+    self.failUnlessEqual(option.FindMatches(['2e2', 'foobar'], 0).value, True)
+    self.failUnlessEqual(option.FindMatches(['e2e'], 0).value, False)
+    self.failUnlessEqual(option.FindMatches(['e2e', 'foo'], 0).value, False)
 
     # List based options
     option = option_lib.Option(name='alist', boolean=False,
                                match=['one', 'two', 'three', 'four'],
                                helptext='Some help')
+    line = ['t', '']
     self.failUnlessEqual({'two': '', 'three': ''},
-                         option.GetMatches('t'))
+                         option.FindMatches(line, 0).valid)
     self.failUnlessEqual({'one': '', 'two': '', 'three': '', 'four': ''},
-                         option.GetMatches(''))
+                         option.FindMatches(line, 1).valid)
+    line = ['bar', ' ']
     self.failUnlessEqual({'one': '', 'two': '', 'three': '', 'four': ''},
-                         option.GetMatches(' '))
+                         option.FindMatches(line, 1).valid)
     self.failUnlessEqual({},
-                         option.GetMatches('bar'))
+                         option.FindMatches(line, 0).valid)
 
 
 class MatchTest(unittest.TestCase):

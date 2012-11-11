@@ -887,15 +887,9 @@ class Options(list):
       for option in self:
         # Look through options. Any that match the current word
         # are added to candidates.
-        if option.Matches(command, index):
-          if option.matcher.MATCH == 'regex':
-            candidates.append(word)
-          else:
-            if option.boolean:
-              candidates.append(option.name)
-            else:
-              matches = option.GetMatches(word)
-              candidates.extend(matches.keys())
+        match = option.FindMatches(command, index)
+        if match.count:
+          candidates.extend(match.valid.keys())
       if len(candidates) != 1:
         # Skip out of completion if less or more than one option matches.
         break
@@ -944,12 +938,13 @@ class Options(list):
         if option.arg_key is not None:
           # Value of key-value, matches separately.
           continue
-        if option.Matches(line, idx):
+        match = option.FindMatches(line, idx)
+        if match.count:
           if option.arg_val is not None:
-            value = option.arg_val.Match(line, idx+1)
+            value = option.arg_val.FindMatches(line, idx+1).value
             idx += 1  # Also found value arg.
           else:
-            value = option.Match(line, idx)
+            value = match.value
           found_options[option] = value
           if option.group and option.group not in found_groups:
             found_groups.append(option.group)
@@ -977,9 +972,10 @@ class Options(list):
     # The final returned dict.
     completes = {}
     # Get the last token on the line.
+    last_index = len(line)-1
     last_token = None
     if line:
-      last_token = line[-1]
+      last_token = line[last_index]
 
     # found options are options which are found.
     # Seem groups are groups for which a member was seen.
@@ -1000,9 +996,10 @@ class Options(list):
           (option.hidden and not SHOW_HIDDEN) or  # Dont show hidden options.
           (option.group in seen_groups) or  # Already have a group member.
           # Position is not valid at this token.
-          (option.position >= 0 and len(line) - 1 != option.position) or
+          (option.position >= 0 and last_index != option.position) or
           # No match for this option (unless no token is present).
-          (last_token != ' ' and not option.Matches(line, len(line) - 1))):
+          (last_token != ' ' and not
+           option.FindMatches(line, last_index).count)):
         return True
       return False
 
@@ -1011,15 +1008,17 @@ class Options(list):
     for option in self:
       if _SkipOption(option, line):
         continue
+      match = option.FindMatches(line, last_index)
       if option.arg_key is not None:
         # We have the value of a key/value option. Check the previous token
         # is the key and is valid, then add this option as the only completion.
-        if len(line) < 2 or not option.arg_key.Matches(line, len(line) - 2):
+        if (len(line) < 2 or not
+            option.arg_key.FindMatches(line, last_index-1).count):
           # Line too short or previous token doesnt match
           continue
         # Reset all completes, as we only want whetever matches the keyvalue.
         if option.matcher.MATCH in ('list', 'dict', 'path', 'method'):
-          completes = option.GetMatches(last_token)
+          completes = match.valid
           if len(completes) != 1:
             # single value of keyvalue not present.
             has_required = False
@@ -1036,7 +1035,7 @@ class Options(list):
         completes['<%s>' % option.name] = option.helptext
       else:
         # Others show the actual valid strings.
-        completes.update(option.GetMatches(last_token))
+        completes.update(match.valid)
 
     # Add <cr> to to options if the command is runnable, any/all options are
     # supplied, and there is no word under the cursor.
@@ -1099,28 +1098,28 @@ class Options(list):
           # Keyvalue args are not checked here.
           continue
 
-        if not option.Matches(command, idx):
+        match = option.FindMatches(command, idx)
+        if not match.count:
           # Option does not match anyway.
           continue
 
         found_options.append(option.name)
-        matches = option.GetMatches(token)
 
         # A 'multiple match' error is displayed unless the
         # token is an exact match for one of the candidates.
-        if len(matches) != 1 and token not in matches:
+        if len(match.valid) != 1 and token not in match.valid:
           if describe:
             print '%% Multiple matches for "%s" argument "%s":' % (
                 option.name, token)
-            for arg in matches:
+            for arg in match.valid:
               print ' %s' % arg
           return False
 
         # If a path option, check for existance if 'only_valid_paths'.
-        if option.is_path and option.only_valid_paths and not os.path.exists(
-            option.Match(command, idx)):
+        if (option.is_path and option.only_valid_paths and not
+            os.path.exists(match.value)):
           if describe:
-            print '%% File not found: %s' % option.Match(command, idx)
+            print '%% File not found: %s' % match.value
           return False
 
         # Check key/value options have value part present.
@@ -1130,22 +1129,22 @@ class Options(list):
             if describe:
               print '%% Argument for option "%s" missing.' % option.name
             return False
-          if not option.arg_val.Matches(command, idx+1):
+          vmatch = option.arg_val.FindMatches(command, idx+1)
+          if not vmatch.count:
             # Arg does not match.
             if describe:
               print '%% Invalid argument for option "%s".' % option.name,
-            if option.arg_val.matcher.reason:
-              print option.arg_val.matcher.reason
+            if vmatch.reason:
+              print vmatch.reason
             else:
               print
             return False
           tok = command[idx+1]
-          matches = option.arg_val.GetMatches(tok)
-          if len(matches) != 1 and tok not in matches:
+          if len(vmatch.valid) != 1 and tok not in vmatch.valid:
             if describe:
               print '%% Multiple matches for "%s" argument "%s":' % (
                   option.name, tok)
-              for arg in matches:
+              for arg in vmatch.valid:
                 print ' %s' % arg
             return False
           found_options.append(option.arg_val.name)

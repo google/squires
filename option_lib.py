@@ -16,9 +16,23 @@
 
 """options for squires."""
 
+import collections
 import inspect
 import os
 import re
+
+
+"""Represents a match for an option.
+
+Attributes:
+  value: A string, the text matched by the option.
+  count: An int, the count of tokens that this match swallowed. If the
+    option did not match, then this is zero.
+  reason: A str, the reason, if the match failed.
+  valid: A dict, the valid values. Keys are the value string, values
+    are the associated helptext.
+"""
+Match = collections.namedtuple('Match', 'value count reason valid')
 
 
 class Option(object):
@@ -123,72 +137,41 @@ class Option(object):
       if boolean is None:
         self.boolean = True
 
-  def Matches(self, command, position):
-    """Determine if this option matches the command string.
+  def FindMatches(self, command, index):
+    """Find possible matches for this option.
 
     Args:
-      command: A list of strings, the options on the command line.
-      position: An int, the position in the command to look for
-        a match.
+      command: A list of str, the command line of options.
+      index: An int, the position in 'command' of the token to check.
 
     Returns:
-      A boolean, whether there is a match.
+      A Match object, the match result.
     """
-    # Loop through all tokens on the command line, looking for
-    # matches. Once we have a definitive match/no match, return
-    # the boolean.
-    for self._index, token in enumerate(command):
-      if self.position > -1 and position != self.position:
-        # Position required by option but does not match, skip.
-        continue
-      if position is not None and self._index != position:
-        # Position required by arg but does not match, skip.
-        continue
-      if self.arg_key is not None:
-        # If this is a keyvalue arg
-        if not self.arg_key.Matches(command, self._index-1):
-          # Previous token must be the corresponding key.
-          continue
-      if self.matcher.Matches(token):
-        return True
+    # Make sure position is correct, if applicable.
+    if self.position > -1 and index != self.position:
+      return Match('', 0, 'position mismatch', {})
 
-    return False
+    if index >= len(command) or index < 0:
+      return Match('', 0, 'position range error', {})
 
-  def Match(self, command, position=None):
-    """Attempt to match this option in the command string.
+    # If a keyvalue value, make sure key matches.
+    if self.arg_key is not None:
+      key_match = self.arg_key.FindMatches(command, index-1)
+      if not key_match.count:
+        return Match('', 0, 'key mismatch', {})
 
-    Args:
-      command: A list of strings or a string, the command line's options.
-      position: An int, the position in the command line. If None,
-        searches the whole command line.
-
-    Returns:
-      If the option is a boolean option, returns True if matched,
-      else returns None. Else returns the actual matching string, if
-      one found, else the empty string.
-    """
-    if isinstance(command, str):
-      command = [command]
-
-    if not self.Matches(command, position=position):
-      return None
-
+    # Possible completiong
+    valid = self.matcher.GetValidMatches(command[index].strip())
+    # Any successful match.
+    value = self.matcher.GetMatch(command[index])
     if self.boolean:
-      return True
-
-    return self.matcher.GetMatch(command[self._index])
-
-  def GetMatches(self, token):
-    """Get all possible matches for the command.
-
-    Args:
-      token: A string, the token to get matches for.
-
-    Returns:
-      A dict of possible matches. Keys are the match string,
-        values are help text for each.
-    """
-    return self.matcher.GetValidMatches(token.strip())
+      value = value and True or False
+    count = 0
+    reason = self.matcher.reason
+    if self.matcher.Matches(command[index]):
+      count = 1
+      reason = ''
+    return Match(value, count, reason, valid)
 
   def __cmp__(self, other):
     """Comparison for sort.
@@ -292,7 +275,7 @@ class BooleanMatch(BaseMatch):
 
 
 class RegexMatch(BaseMatch):
-  """An option that matches on a list."""
+  """An option that matches on a regex."""
   MATCH = 'regex'
 
   def __init__(self, value, helptext, option):
