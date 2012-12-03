@@ -940,16 +940,19 @@ class Options(list):
           continue
         match = option.FindMatches(line, idx)
         if match.count:
+          idx += match.count
           if option.arg_val is not None:
-            value = option.arg_val.FindMatches(line, idx+1).value
-            idx += 1  # Also found value arg.
+            val_match = option.arg_val.FindMatches(line, idx)
+            idx += val_match.count  # Also found value arg.
+            value = val_match.value
           else:
             value = match.value
           found_options[option] = value
           if option.group and option.group not in found_groups:
             found_groups.append(option.group)
           break
-      idx += 1
+      else:
+        break  # Didnt find option for this token. Abort.
     return (found_options, found_groups)
 
   def GetOptionCompletes(self, line):
@@ -1103,6 +1106,7 @@ class Options(list):
           # Option does not match anyway.
           continue
 
+        idx += match.count-1
         found_options.append(option.name)
 
         # A 'multiple match' error is displayed unless the
@@ -1139,7 +1143,8 @@ class Options(list):
             else:
               print
             return False
-          tok = command[idx+1]
+          idx += vmatch.count
+          tok = command[idx]
           if len(vmatch.valid) != 1 and tok not in vmatch.valid:
             if describe:
               print '%% Multiple matches for "%s" argument "%s":' % (
@@ -1148,7 +1153,6 @@ class Options(list):
                 print ' %s' % arg
             return False
           found_options.append(option.arg_val.name)
-          idx += 1  # Bump token index up to skip arg val.
 
         # Note missing groups or options.
         if option.required and option.group in missing_groups:

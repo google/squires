@@ -151,7 +151,11 @@ class Adventure(object):
         command.GetOption('weapon')))
 
   def Say(self, command, unused_command):
-    self.SlowPrint('You mutter, "%s".' % command.GetOption('words'))
+    if command.GetOption('shout'):
+      tone = 'shout'
+    else:
+      tone = 'mutter'
+    self.SlowPrint('You %s, "%s".' % (tone, command.GetOption('words')))
 
 
 class CmdRoot(squires.Command):
@@ -225,8 +229,9 @@ def main(unused_argv):
       COMMAND('inventory', help='See your inventory',
               method=adventure.Inventory): {},
       COMMAND('say', help='Say something', method=adventure.Say): (
-          OPTION('words', helptext='Words to say',
-                 match='\S.+', freeform=True),
+          OPTION('shout', helptext='Shout it out!'),
+          OPTION('words', helptext='Words to say', keyvalue=True,
+                 boolean=False, match='.+', multiword=True),
           ),
   }
 

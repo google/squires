@@ -78,76 +78,84 @@ class MatchTest(unittest.TestCase):
 
   def testBoolean(self):
     bm = option_lib.BooleanMatch('green', 'Make it green')
-    self.assertTrue(bm.Matches('green'))
-    self.assertFalse(bm.Matches('blue'))
+    self.assertTrue(bm.Matches(['green'], 0))
+    self.assertFalse(bm.Matches(['blue'], 0))
 
-    self.assertTrue(bm.GetMatch('green'))
-    self.assertFalse(bm.GetMatch('blue'))
+    self.assertTrue(bm.GetMatch(['green'], 0))
+    self.assertFalse(bm.GetMatch(['blue'], 0))
 
     self.assertEqual({'green': 'Make it green'},
-                     bm.GetValidMatches('green'))
+                     bm.GetValidMatches(['green'], 0))
     self.assertEqual({'green': 'Make it green'},
-                     bm.GetValidMatches('gr'))
-    self.assertEqual({}, bm.GetValidMatches('blue'))
+                     bm.GetValidMatches(['gr'], 0))
+    self.assertEqual({}, bm.GetValidMatches(['blue'], 0))
 
   def testRegex(self):
     opt = option_lib.Option(name='<interface>')
     bm = option_lib.RegexMatch('[fgx]e-.*', 'A Juniper ethernet interface', opt)
-    self.assertTrue(bm.Matches('ge-0/0/0'))
-    self.assertFalse(bm.Matches('so-1/0/0'))
+    self.assertTrue(bm.Matches(['ge-0/0/0'], 0))
+    self.assertFalse(bm.Matches(['so-1/0/0'], 0))
 
-    self.assertEqual('ge-0/0/0', bm.GetMatch('ge-0/0/0'))
-    self.assertEqual(None, bm.GetMatch('so-0/0/0'))
+    self.assertEqual('ge-0/0/0', bm.GetMatch(['ge-0/0/0'], 0))
+    self.assertEqual(None, bm.GetMatch(['so-0/0/0'], 0))
 
     self.assertEqual({'ge-0/0/0': 'A Juniper ethernet interface'},
-                     bm.GetValidMatches('ge-0/0/0'))
+                     bm.GetValidMatches(['ge-0/0/0'], 0))
     self.assertEqual({'<<interface>>':
                       'A Juniper ethernet interface ([fgx]e-.*)'},
-                     bm.GetValidMatches(None))
+                     bm.GetValidMatches([''], None))
     self.assertEqual({},
-                     bm.GetValidMatches('so-0/0/0'))
+                     bm.GetValidMatches(['so-0/0/0'], 0))
+
+  def testMultiword(self):
+    opt = option_lib.Option(name='<interface>', multiword=True)
+    bm = option_lib.RegexMatch('\d+[^\d]+\d+', 'A Juniper ethernet interface', opt)
+    self.assertEqual(0, bm.Matches(['one', 'two', '344'], 0))
+    self.assertEqual(2, bm.Matches(['one', '34 two', '34 and 35', 'blahfrub'], 1))
+    self.assertEqual(2, bm.Matches(['zero', 'one', '34 two', '34 and 35', 'blahfrub'], 2))
 
   def testList(self):
     bm = option_lib.ListMatch(
         ['red', 'black', 'blue', 'blueish', 'green'], 'A colour',
         option_lib.Option('foo'))
-    self.assertTrue(bm.Matches('red'))
-    self.assertTrue(bm.Matches('blue'))
-    self.assertFalse(bm.Matches('white'))
+    self.assertTrue(bm.Matches(['red'], 0))
+    self.assertTrue(bm.Matches(['blue'], 0))
+    self.assertFalse(bm.Matches(['white'], 0))
 
-    self.assertEqual('blue', bm.GetMatch('blue'))
-    self.assertEqual('blueish', bm.GetMatch('blueish'))
-    self.assertEqual(None, bm.GetMatch('wh'))
+    self.assertEqual('blue', bm.GetMatch(['blue'], 0))
+    self.assertEqual('blueish', bm.GetMatch(['blueish'], 0))
+    self.assertEqual(None, bm.GetMatch(['wh'], 0))
 
     self.assertEqual({'blue': '', 'black': '',
                       'blueish': ''},
-                     bm.GetValidMatches('bl'))
+                     bm.GetValidMatches(['bl'], 0))
     self.assertEqual({'red': '',
                       'black': '',
                       'blue': '',
                       'blueish': '',
                       'green': ''},
-                     bm.GetValidMatches(None))
+                     bm.GetValidMatches([''], 0))
     self.assertEqual({},
-                     bm.GetValidMatches('wh'))
+                     bm.GetValidMatches(['wh'], 0))
 
   def testListRegexMatch(self):
     bm = option_lib.ListMatch(['/wi*/', '/bo*/', 'foobar'], 'foo',
-                              option_lib.Option('foo'))
-    self.assertTrue(bm.Matches('w'))
-    self.assertTrue(bm.Matches('wi'))
-    self.assertTrue(bm.Matches('wiiiiiiiiiiii'))
-    self.assertTrue(bm.Matches('b'))
-    self.assertTrue(bm.Matches('bo'))
-    self.assertTrue(bm.Matches('booooooooooooooo'))
-    self.assertTrue(bm.Matches('foobar'))
-    self.assertFalse(bm.Matches('zzzzzzz'))
+                              option_lib.Option(['foo'], 0))
+    self.assertTrue(bm.Matches(['w'], 0))
+    self.assertTrue(bm.Matches(['wi'], 0))
+    self.assertTrue(bm.Matches(['wiiiiiiiiiiii'], 0))
+    self.assertTrue(bm.Matches(['b'], 0))
+    self.assertTrue(bm.Matches(['bo'], 0))
+    self.assertTrue(bm.Matches(['booooooooooooooo'], 0))
+    self.assertTrue(bm.Matches(['foobar'], 0))
+    self.assertFalse(bm.Matches(['zzzzzzz'], 0))
 
-    self.assertEqual('foobar', bm.GetMatch('fo'))
-    self.assertEqual(None, bm.GetMatch('wiii'))
+    self.assertEqual('foobar', bm.GetMatch(['fo'], 0))
+    self.assertEqual(None, bm.GetMatch(['wiii'], 0))
 
-    self.assertEqual({'foobar': '', '/bo*/': '', '/wi*/': ''}, bm.GetValidMatches(''))
-    self.assertEqual({}, bm.GetValidMatches('booo'))
+    self.assertEqual({'foobar': '', '/bo*/': '', '/wi*/': ''},
+                     bm.GetValidMatches([''], 0))
+    self.assertEqual({}, bm.GetValidMatches(['booo'], 0))
 
   def testDict(self):
     bm = option_lib.DictMatch(
@@ -156,27 +164,27 @@ class MatchTest(unittest.TestCase):
          'blue': 'The colour blue',
          'blueish': 'A sort of blue',
          'green': 'The colour green'}, option_lib.Option('foo'))
-    self.assertTrue(bm.Matches('red'))
-    self.assertTrue(bm.Matches('blue'))
-    self.assertTrue(bm.Matches('blueish'))
-    self.assertFalse(bm.Matches('white'))
+    self.assertTrue(bm.Matches(['red'], 0))
+    self.assertTrue(bm.Matches(['blue'], 0))
+    self.assertTrue(bm.Matches(['blueish'], 0))
+    self.assertFalse(bm.Matches(['white'], 0))
 
-    self.assertEqual('blue', bm.GetMatch('blue'))
-    self.assertEqual('blueish', bm.GetMatch('blueish'))
-    self.assertEqual(None, bm.GetMatch('wh'))
+    self.assertEqual('blue', bm.GetMatch(['blue'], 0))
+    self.assertEqual('blueish', bm.GetMatch(['blueish'], 0))
+    self.assertEqual(None, bm.GetMatch(['wh'], 0))
 
     self.assertEqual({'blue': 'The colour blue',
                       'black': 'The colour black',
                       'blueish': 'A sort of blue'},
-                     bm.GetValidMatches('bl'))
+                     bm.GetValidMatches(['bl'], 0))
     self.assertEqual({'red': 'The colour red',
                       'black': 'The colour black',
                       'blue': 'The colour blue',
                       'blueish': 'A sort of blue',
                       'green': 'The colour green'},
-                     bm.GetValidMatches(None))
+                     bm.GetValidMatches([''], 0))
     self.assertEqual({},
-                     bm.GetValidMatches('wh'))
+                     bm.GetValidMatches(['wh'], 0))
 
   def testDictRegexMatch(self):
     bm = option_lib.DictMatch(
@@ -184,26 +192,22 @@ class MatchTest(unittest.TestCase):
          '/wi*/': 'hurray',
          '/bo*/': 'booooo'}, option_lib.Option('foo'))
 
-    self.assertTrue(bm.Matches('foobar'))
-    self.assertTrue(bm.Matches('w'))
-    self.assertTrue(bm.Matches('wi'))
-    self.assertTrue(bm.Matches('wiiii'))
-    self.assertTrue(bm.Matches('b'))
-    self.assertTrue(bm.Matches('boooooo'))
-    self.assertFalse(bm.Matches('zzzzzzz'))
+    self.assertTrue(bm.Matches(['foobar'], 0))
+    self.assertTrue(bm.Matches(['w'], 0))
+    self.assertTrue(bm.Matches(['wi'], 0))
+    self.assertTrue(bm.Matches(['wiiii'], 0))
+    self.assertTrue(bm.Matches(['b'], 0))
+    self.assertTrue(bm.Matches(['boooooo'], 0))
+    self.assertFalse(bm.Matches(['zzzzzzz'], 0))
 
     self.assertEqual({'foobar': 'foobar',
                       '/wi*/': 'hurray',
                       '/bo*/': 'booooo'},
-                     bm.GetValidMatches(None))
-    self.assertEqual({'foobar': 'foobar',
-                      '/wi*/': 'hurray',
-                      '/bo*/': 'booooo'},
-                     bm.GetValidMatches(''))
+                     bm.GetValidMatches([''], 0))
     self.assertEqual({},
-                     bm.GetValidMatches('zzz'))
+                     bm.GetValidMatches(['zzz'], 0))
     self.assertEqual({'foobar': 'foobar'},
-                     bm.GetValidMatches('fo'))
+                     bm.GetValidMatches(['fo'], 0))
 
   def testMethod(self):
     def MatchMethod(option):
@@ -215,65 +219,67 @@ class MatchTest(unittest.TestCase):
           'green': 'The colour green'}
 
     bm = option_lib.MethodMatch(MatchMethod, option_lib.Option('foo'))
-    self.assertTrue(bm.Matches('red'))
-    self.assertTrue(bm.Matches('blue'))
-    self.assertTrue(bm.Matches('blueish'))
-    self.assertFalse(bm.Matches('white'))
+    self.assertTrue(bm.Matches(['red'], 0))
+    self.assertTrue(bm.Matches(['blue'], 0))
+    self.assertTrue(bm.Matches(['blueish'], 0))
+    self.assertFalse(bm.Matches(['white'], 0))
 
-    self.assertEqual('blue', bm.GetMatch('blue'))
-    self.assertEqual('blueish', bm.GetMatch('blueish'))
-    self.assertEqual(None, bm.GetMatch('wh'))
+    self.assertEqual('blue', bm.GetMatch(['blue'], 0))
+    self.assertEqual('blueish', bm.GetMatch(['blueish'], 0))
+    self.assertEqual(None, bm.GetMatch(['wh'], 0))
 
     self.assertEqual({'blue': 'The colour blue',
                       'black': 'The colour black',
                       'blueish': 'A sort of blue'},
-                     bm.GetValidMatches('bl'))
+                     bm.GetValidMatches(['bl'], 0))
     self.assertEqual({'red': 'The colour red',
                       'black': 'The colour black',
                       'blue': 'The colour blue',
                       'blueish': 'A sort of blue',
                       'green': 'The colour green'},
-                     bm.GetValidMatches(None))
+                     bm.GetValidMatches([''], 0))
     self.assertEqual({},
-                     bm.GetValidMatches('wh'))
+                     bm.GetValidMatches(['wh'], 0))
 
   def testPath(self):
     """Tests path matching."""
     fm = option_lib.PathMatch(None, None)
-    self.assertTrue(fm.Matches('blah'))
-    self.assertTrue(fm.Matches('/etc'))
-    self.assertFalse(fm.Matches(''))
-    self.assertFalse(fm.Matches(' '))
+    self.assertTrue(fm.Matches(['blah'], 0))
+    self.assertTrue(fm.Matches(['/etc'], 0))
+    self.assertFalse(fm.Matches([''], 0))
+    self.assertFalse(fm.Matches([' '], 0))
 
     fm = option_lib.PathMatch(None, option_lib.Option('foo'),
                               only_existing=True,
                               default_path='./testdata/')
-    self.assertEqual(
-        {'boo1': '', 'boo2': '', 'file1': ''},
-        fm.GetValidMatches())
+    matches = fm.GetValidMatches([''], 0)
+    if '.svn/' in matches:
+      del matches['.svn/']
+    self.assertEqual({'boo1': '', 'boo2': '', 'file1': ''}, matches)
 
     self.assertEqual(
         {'file1': ''},
-        fm.GetValidMatches('f'))
+        fm.GetValidMatches(['f'], 0))
 
     self.assertEqual(
         {'boo1': '', 'boo2': ''},
-        fm.GetValidMatches('bo'))
+        fm.GetValidMatches(['bo'], 0))
 
-    self.assertTrue(fm.Matches('boo1'))
-    self.assertFalse(fm.Matches('boo'))
-    self.assertFalse(fm.Matches('blum'))
+    self.assertTrue(fm.Matches(['boo1'], 0))
+    self.assertFalse(fm.Matches(['boo'], 0))
+    self.assertFalse(fm.Matches(['blum'], 0))
 
-    self.assertEqual(None, fm.GetMatch('boo'))
-    self.assertEqual('boo1', fm.GetMatch('boo1'))
+    self.assertEqual(None, fm.GetMatch(['boo'], 0))
+    self.assertEqual('boo1', fm.GetMatch(['boo1'], 0))
 
     fm = option_lib.PathMatch(None, option_lib.Option('foo'),
                               only_existing=True,
                               only_dirs=True)
 
-    self.assertEqual(
-        {'testdata/': ''},
-        fm.GetValidMatches())
+    matches = fm.GetValidMatches([''], 0)
+    if '.svn/' in matches:
+      del matches['.svn/']
+    self.assertEqual({'testdata/': ''}, matches)
 
 
 if __name__ == '__main__':

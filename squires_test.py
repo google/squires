@@ -274,6 +274,24 @@ class CommandsTest(unittest.TestCase):
         self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge']),
         ['show', 'interface', 'intf', 'ge'])
 
+  def testMultiword(self):
+    cmd = self.cmd['show']['interface']
+    cmd.AddOption('software')
+    cmd.AddOption('description', keyvalue=True,
+                      match='.+', multiword=True)
+    cmd.AddOption('name', match='[xg]e-.*')
+
+    cmd.command_line = ['software']
+    self.failUnlessEqual(None, cmd.GetOption('description'))
+    self.failUnlessEqual(None, cmd.GetOption('name'))
+    self.failUnless(cmd.GetOption('software'))
+    cmd.command_line = ['software', 'description', 'A', 'fast', 'interface']
+    self.failUnless(cmd.GetOption('software'))
+    self.failUnlessEqual('A fast interface', cmd.GetOption('description'))
+    cmd.command_line = ['xe-0/0/0', 'description', 'A', 'fast', 'interface']
+    self.failUnlessEqual('xe-0/0/0', cmd.GetOption('name'))
+    self.failUnlessEqual('A fast interface', cmd.GetOption('description'))
+
   def testRequired(self):
     """Test required options."""
     command = self.cmd['show']['version']
@@ -342,19 +360,19 @@ class CommandsTest(unittest.TestCase):
 
     cmd = self.cmd['show']['interface']
     cmd.AddOption('name', keyvalue=True, match='ge.*')
-    cmd.command_line = ['show', 'interface', 'name', 'ge-0/0/0']
+    cmd.command_line = ['name', 'ge-0/0/0']
     self.failUnlessEqual('ge-0/0/0', cmd.GetOption('name'))
-    cmd.command_line = ['show', 'interface', 'ge-0/0/0']
+    cmd.command_line = ['ge-0/0/0']
     self.assertTrue(cmd.GetOption('name') is None)
 
     cmd.AddOption('style', keyvalue=True, match=['short', 'long'])
-    cmd.command_line = ['show', 'interface', 'style', 'lo']
+    cmd.command_line = ['style', 'lo']
     self.failUnlessEqual({'long': ''}, cmd.Completer(cmd.command_line))
-    cmd.command_line = ['show', 'interface', 'style', 'short']
+    cmd.command_line = ['style', 'short']
     self.failUnlessEqual('short', cmd.GetOption('style'))
-    cmd.command_line = ['show', 'interface', 'style', 's']
+    cmd.command_line = ['style', 's']
     self.failUnlessEqual('short', cmd.GetOption('style'))
-    cmd.command_line = ['show', 'interface', 'style', 'l']
+    cmd.command_line = ['style', 'l']
     self.failUnlessEqual('long', cmd.GetOption('style'))
 
     cmd.AddOption('style', keyvalue=True, match={'short': 'Short style',
@@ -362,38 +380,38 @@ class CommandsTest(unittest.TestCase):
                   default='long')
     cmd.AddOption('size', keyvalue=True, match={'small': 'Small size',
                                                 'long': 'Long size'})
-    cmd.command_line = ['show', 'interface', 'style', 'short']
+    cmd.command_line = ['style', 'short']
     self.failUnlessEqual('short', cmd.GetOption('style'))
-    cmd.command_line = ['show', 'interface', 'style', 's']
+    cmd.command_line = ['style', 's']
     self.failUnlessEqual('short', cmd.GetOption('style'))
-    cmd.command_line = ['show', 'interface', 'style', 'l']
+    cmd.command_line = ['style', 'l']
     self.failUnlessEqual('long', cmd.GetOption('style'))
 
-    cmd.command_line = ['show', 'interface', 'style', 'l']
+    cmd.command_line = ['style', 'l']
     self.failUnlessEqual({'long': 'Long style [Default]'},
                          cmd.Completer(cmd.command_line))
 
-    cmd.command_line = ['show', 'interface']
+    cmd.command_line = []
     self.failUnlessEqual('long', cmd.GetOption('style'))
 
-    cmd.command_line = ['show', 'interface', 'style', 'long', 'size', 'l']
+    cmd.command_line = ['style', 'long', 'size', 'l']
     self.failUnlessEqual({'long': 'Long size'}, cmd.Completer(cmd.command_line))
-    cmd.command_line = ['show', 'interface', 'size', 'long', 'style', 'l']
+    cmd.command_line = ['size', 'long', 'style', 'l']
     self.failUnlessEqual({'long': 'Long style [Default]'},
                          cmd.Completer(cmd.command_line))
 
     cmd.AddOption('count', keyvalue=True, match=lambda x: {'one': '1', 'two':
                                                            '2'})
-    cmd.command_line = ['show', 'interface', 'count', 'o']
+    cmd.command_line = ['count', 'o']
     self.failUnlessEqual({'one': '1'}, cmd.Completer(cmd.command_line))
 
     cmd.AddOption('colour', keyvalue=True, hidden=True, match=('red', 'blue'))
-    cmd.command_line = ['show', 'interface', 'col']
+    cmd.command_line = ['col']
     self.failUnlessEqual({}, cmd.Completer(cmd.command_line))
-    cmd.command_line = ['show', 'interface', 'colour', 'red']
+    cmd.command_line = ['colour', 'red']
     self.failUnlessEqual('red', cmd.GetOption('colour'))
 
-    cmd.command_line = ['show', 'interface', 'co']
+    cmd.command_line = ['co']
     self.failUnlessEqual({'count': None}, cmd.Completer(cmd.command_line))
 
   def FakeReadlineGetBuffer(self):
@@ -529,34 +547,39 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['de', 'te']),
         {'test': 'test help', 'text': 'text help'})
+
     # All options should be returned
-    self.failUnlessEqual(
-        self.cmd['show']['interface'].options.GetOptionCompletes([' ']),
-        {'text': 'text help', 'test': 'test help', 'detail': 'detail help',
-         'extensive': 'extensive help',
-         'lines': 'lines to show'})
+    keys = ['detail', 'extensive', 'lines', 'test', 'text']
+    values = ['detail help', 'extensive help', 'lines to show', 'test help',
+              'text help']
+    res = self.cmd['show']['interface'].options.GetOptionCompletes([' '])
+    self.failUnlessEqual(keys, sorted(res.keys()))
+    self.failUnlessEqual(values, sorted(res.values()))
+
     # A group member already present, excluded other groups members
     # from completes
-    self.failUnlessEqual(
-        self.cmd['show']['interface'].options.GetOptionCompletes(['de', ' ']),
-        {'test': 'test help', 'text': 'text help',
-         'lines': 'lines to show'})
+    keys = ['lines', 'test', 'text']
+    values = ['lines to show', 'test help', 'text help']
+    res = self.cmd['show']['interface'].options.GetOptionCompletes(['de', ' '])
+    self.failUnlessEqual(keys, sorted(res.keys()))
+    self.failUnlessEqual(values, sorted(res.values()))
 
     # All available subcommands and options.
-    self.failUnlessEqual(
-        self.cmd['show']['interface'].Completer([' ']),
-        {'terse': 'terse help', 'teal': 'teal help',
-         'text': 'text help',
-         'test': 'test help', 'detail': 'detail help',
-         'extensive': 'extensive help',
-         'xe1': 'xe1 help', 'xe10': 'xe10 help',
-         'lines': 'lines to show'})
+    keys = ['detail', 'extensive', 'lines', 'teal', 'terse', 'test', 'text',
+            'xe1', 'xe10']
+    values = ['detail help', 'extensive help', 'lines to show', 'teal help',
+              'terse help', 'test help', 'text help', 'xe1 help', 'xe10 help']
+    res = self.cmd['show']['interface'].Completer([' '])
+    self.failUnlessEqual(keys, sorted(res.keys()))
+    self.failUnlessEqual(values, sorted(res.values()))
 
     # Some matching subcommands and options
-    self.failUnlessEqual(
-        self.cmd['show']['interface'].Completer(['te']),
-        {'terse': 'terse help', 'teal': 'teal help',
-         'text': 'text help', 'test': 'test help'})
+    keys = ['teal', 'terse', 'test', 'text',]
+    values = ['teal help', 'terse help', 'test help', 'text help']
+    res = self.cmd['show']['interface'].Completer(['te'])
+    self.failUnlessEqual(keys, sorted(res.keys()))
+    self.failUnlessEqual(values, sorted(res.values()))
+
     # One matching subcommand
     self.failUnlessEqual(
         self.cmd['show']['interface'].Completer(['ter']),
@@ -571,11 +594,11 @@ class CommandsTest(unittest.TestCase):
         self.cmd['show']['interface'].Completer(['tex', 'de', 'ex']))
 
     # Only non-included options are returned
-    self.failUnlessEqual(
-        self.cmd['show']['interface'].Completer(['tex', ' ']),
-        {'test': 'test help', 'detail': 'detail help',
-         'extensive': 'extensive help',
-         'lines': 'lines to show'})
+    keys = ['detail', 'extensive', 'lines', 'test']
+    values = ['detail help', 'extensive help', 'lines to show', 'test help']
+    res = self.cmd['show']['interface'].Completer(['tex', ' '])
+    self.failUnlessEqual(keys, sorted(res.keys()))
+    self.failUnlessEqual(values, sorted(res.values()))
 
     # KeyValue options
     self.failUnlessEqual(

@@ -31,6 +31,8 @@ Attributes:
   reason: A str, the reason, if the match failed.
   valid: A dict, the valid values. Keys are the value string, values
     are the associated helptext.
+  all: A dict, similar to 'valid' but has all recognised values, even those
+    not matching the command.
 """
 Match = collections.namedtuple('Match', 'value count reason valid')
 
@@ -59,7 +61,7 @@ class Option(object):
     only_dir_paths: A boolean. If True, and is_path is True, only complete
         on directories.
     path_dir: A str, the default path to use when is_path is True.
-    match: If a string it is a regex to match this option.
+    match: If this is a string, it is a regex to match this option.
         If a list of strings, it is a list or dict of possible values.
         In the case of a dict, keys are the option value, and values are the
           associated helpstring.
@@ -73,9 +75,8 @@ class Option(object):
         is not positional.
     hidden: A boolean, if True, the option does not tab complete. Note that the
         'value' of a keyvalue option will tab complete when the key is supplied.
-    freeform: A boolean. If True, the option is populated with all remaining
-        text on the command line. A command without a freeform option will
-        generate an error if unrecognisable text is entered.
+    multiword: A boolean. If true, the match may span multiple words/tokens on
+        the command line.
     arg_key: An Option(), the 'key' option of a key/value option pair. Used
         internally by Squires.
     arg_val: An Option(), the 'value' option of a key/value option pair. Used
@@ -87,7 +88,7 @@ class Option(object):
   def __init__(self, name, boolean=None, keyvalue=False, required=False,
                helptext=None, match=None, default=None, group=None, position=-1,
                is_path=False, only_valid_paths=False, hidden=False,
-               only_dir_paths=False, path_dir=None, freeform=False,
+               only_dir_paths=False, path_dir=None, multiword=False,
                meta=None):
     self.name = name
     self.helptext = helptext
@@ -105,7 +106,7 @@ class Option(object):
     self.arg_val = None
     self.hidden = hidden
     self.matcher = None
-    self.freeform = freeform
+    self.multiword = multiword
     self._index = 0
     self.meta = meta
     if match is not None and self.boolean is None:
@@ -122,8 +123,6 @@ class Option(object):
       self.matcher = PathMatch(
           match, self, only_existing=self.only_valid_paths,
           default_path=path_dir, only_dirs=only_dir_paths)
-    elif self.freeform:
-      self.matcher = FreeformMatch(self)
     elif isinstance(match, str):
       self.matcher = RegexMatch(match, helptext, self)
     elif isinstance(match, (tuple, set, list)):
@@ -160,17 +159,14 @@ class Option(object):
       if not key_match.count:
         return Match('', 0, 'key mismatch', {})
 
-    # Possible completiong
-    valid = self.matcher.GetValidMatches(command[index].strip())
+    # Possible completions
+    valid = self.matcher.GetValidMatches(command, index)
     # Any successful match.
-    value = self.matcher.GetMatch(command[index])
+    value = self.matcher.GetMatch(command, index)
     if self.boolean:
       value = value and True or False
-    count = 0
     reason = self.matcher.reason
-    if self.matcher.Matches(command[index]):
-      count = 1
-      reason = ''
+    count = self.matcher.Matches(command, index)
     return Match(value, count, reason, valid)
 
   def __cmp__(self, other):
@@ -192,20 +188,24 @@ class BaseMatch(object):
   MATCH = None
   def __init__(self):
     """Override."""
-    self.reason = None
+    self.reason = ''
 
-  def Matches(self, token):
-    """Returns whether 'token' matches.
+  def Matches(self, command, index):
+    """Attempts to match against the command line.
 
     Args:
-      token: A str, the token to match.
+      command: A list of str, the command line to match.
+      index: An int, the index in the command to match from.
 
     Returns:
-      A boolean. True if the token matches.
+      An int, the number of conescutive tokens that match. Will be zero
+      if there is no match.
     """
-    return len(self.GetValidMatches(token)) > 0
+    if command[index].strip() and len(self.GetValidMatches(command, index)) > 0:
+      return 1
+    return 0
 
-  def GetMatch(self, token):
+  def GetMatch(self, command, index):
     """Attempt to match 'token' to this object.
 
     Args:
@@ -216,7 +216,7 @@ class BaseMatch(object):
     TODO(bbuxton): Define behaviour if multiple partial matches.
   """
 
-  def GetValidMatches(self, token=None):
+  def GetValidMatches(self, command, index):
     """Returns the valid matches for the given token.
 
     Args:
@@ -224,26 +224,10 @@ class BaseMatch(object):
 
     Returns:
       A dict. Keys are the valid tokens that might match. Values are
-        any associated helptext. If token is None, all possible
-        completions are returned.
+        any associated helptext. If index is None,  or command[index] is
+        a space, all possible completions are returned.
     """
     return {}
-
-
-class FreeformMatch(BaseMatch):
-  def __init__(self, option):
-    self._option = option
-
-  def Matches(self, token):
-    return len(token) > 0
-
-  def GetMatch(self, token):
-    return token
-
-  def GetValidMatches(self, token=None):
-    if token:
-      return {token: '<text>'}
-    return {'<%s>' % self._option.name: '<text>'}
 
 
 class BooleanMatch(BaseMatch):
@@ -260,16 +244,16 @@ class BooleanMatch(BaseMatch):
     BaseMatch.__init__(self)
     self.match = value
     self.helptext = helptext
-    self.reason = None
+    self.reason = ''
 
-  def GetMatch(self, token):
+  def GetMatch(self, command, index):
     """Returns whether 'token' matches this option."""
-    if self.Matches(token):
+    if command[index].strip() and self.Matches(command, index):
       return True
     return False
 
-  def GetValidMatches(self, token=None):
-    if not token or self.match.startswith(token):
+  def GetValidMatches(self, command, index):
+    if index is None or self.match.startswith(command[index]) or command[index] == ' ':
       return {self.match: self.helptext}
     return {}
 
@@ -290,26 +274,51 @@ class RegexMatch(BaseMatch):
     self.match = re.compile('^%s' % value, re.I)
     self.match_str = value
     self.helptext = helptext
-    self.reason = None
+    self.reason = ''
     self.option = option
 
-  def GetMatch(self, token):
+  def Matches(self, command, index):
+    """Return count of matching tokens."""
+    if not command[index].strip():
+      return 0
+    # If multiword, join into a single string.
+    if self.option.multiword:
+      mstring = ' '.join(command[index:])
+    else:
+      mstring = command[index]
+
+    # Attempt match on resulting string.
+    match = self.match.match(mstring)
+    if not match:
+      return 0
+
+    idx = 0
+    while idx <= len(command[index:]):
+      if len(' '.join(command[index:index+idx])) >= match.end()-match.start():
+        idx += 1
+        break
+      idx += 1
+
+    return idx-1
+
+  def GetMatch(self, command, index):
     """If we match, return the match string name."""
-    self.reason = None
-    if self.Matches(token):
-      return token
+    self.reason = ''
+    mcount = self.Matches(command, index)
+    if command[index].strip() and mcount:
+      return ' '.join(command[index:index+mcount])
     else:
       self.reason = 'Option must match regex: %s' % self.match_str
 
-  def GetValidMatches(self, token=None):
-    if not token:
+  def GetValidMatches(self, command, index):
+    if index is None or command[index] == ' ':
       # No token, return regex we expect.
       helpstr = '%s (%s)' % (self.helptext, self.match_str)
       return {'<%s>' % self.option.name: helpstr}
 
-    if self.match.match(token):
+    if self.Matches(command, index):
       # Token matches, return it and help string.
-      return {token: self.helptext}
+      return {command[index]: self.helptext}
 
     return {}
 
@@ -328,7 +337,7 @@ class ListMatch(BaseMatch):
     BaseMatch.__init__(self)
     self.match = value
     self.helptext = helptext
-    self.reason = None
+    self.reason = ''
     self.option = option
 
   def _GetRegex(self, needle):
@@ -346,18 +355,18 @@ class ListMatch(BaseMatch):
     if len(needle) > 1 and needle.startswith('/') and needle.endswith('/'):
       return needle.strip('/')
 
-  def Matches(self, token):
+  def Matches(self, command, index):
     """Determine if this option matches the command string."""
     for value in self.match:
       if self._GetRegex(value):
-        if re.match(self._GetRegex(value), token):
-          return True
+        if re.match(self._GetRegex(value), command[index]):
+          return 1
       else:
-        if len(self.GetValidMatches(token)) > 0:
-          return True
-    return False
+        if len(self.GetValidMatches(command, index)) > 0:
+          return 1
+    return 0
 
-  def GetMatch(self, token):
+  def GetMatch(self, command, index):
     """Get the best match for this token.
 
     This does not take regex matches into account. The theory is that if you
@@ -370,7 +379,8 @@ class ListMatch(BaseMatch):
     Returns:
       A string containing the best match given the entered token.
     """
-    self.reason = None
+    self.reason = ''
+    token = command[index]
     found_close_match = False
     close_matches = 0
     matching_token = None
@@ -390,17 +400,25 @@ class ListMatch(BaseMatch):
     self.reason = 'Must match one of: %s' % ','.join(self.match)
     return None
 
-  def GetValidMatches(self, token=None):
+  def GetValidMatches(self, command, index):
     matches = {}
     for item in self.match:
-      # We only return regexes if the match string is empty.
-      if self._GetRegex(item):
-        if not token:
-          matches[item] = ''
-      elif not token or item.startswith(token):
-        matches[item] = ''
+      if index is None or command[index] == ' ':
         if self.option.default == item:
           matches[item] = '[Default]'
+        else:
+          matches[item] = ''
+        continue
+      else:
+        token = command[index]
+        # We only return regexes if the match string is empty.
+        if self._GetRegex(item):
+          if not token:
+            matches[item] = ''
+        elif not token or item.startswith(token):
+          matches[item] = ''
+          if self.option.default == item:
+            matches[item] = '[Default]'
 
     return matches
 
@@ -418,13 +436,19 @@ class DictMatch(ListMatch):
     """
     ListMatch.__init__(self, value, '', option)
     self.match = value
-    self.reason = None
+    self.reason = ''
     self.option = option
 
-  def GetValidMatches(self, token=None):
+  def GetValidMatches(self, command, index):
     """Returns the valid matches for the given token."""
     matches = {}
     for item, helptext in self.match.iteritems():
+      if index is None or command[index] == ' ':
+        matches[item] = helptext
+        if self.option.default == item:
+          matches[item] += ' [Default]'
+        continue
+      token = command[index]
       # We only return regexes if the match string is empty.
       if self._GetRegex(item) and (not token):
         matches[item] = helptext
@@ -453,7 +477,7 @@ class MethodMatch(DictMatch):
     self.option = option
     self.match = self.method(self.option)
 
-  def GetValidMatches(self, token=None):
+  def GetValidMatches(self, command, index):
     """Returns the valid matches for the given token."""
     self.match = {}
     match = self.method(self.option)
@@ -466,7 +490,7 @@ class MethodMatch(DictMatch):
       self.match[match] = ''
     else:
       self.match = match
-    return super(MethodMatch, self).GetValidMatches(token)
+    return super(MethodMatch, self).GetValidMatches(command, index)
 
 
 class PathMatch(BaseMatch):
@@ -499,31 +523,35 @@ class PathMatch(BaseMatch):
       if not self.default_path.endswith(os.sep):
         self.default_path += os.sep
 
-  def Matches(self, token):
-    token = token.strip()
+  def Matches(self, command, index):
+    token = command[index].strip()
     if not token:
-      return False  # Empty never matches
+      return 0  # Empty never matches
 
     if not self.only_existing:
-      return True  # Always match in this case
+      return 1  # Always match in this case
 
-    matches = self.GetValidMatches(token)
-    return token in matches
+    if token in self.GetValidMatches(command, index):
+      return 1
+    return 0
 
-  def GetMatch(self, token):
+  def GetMatch(self, command, index):
+    token = command[index]
     if not self.only_existing:
       return token  # Always match whats supplied
 
-    if token in self.GetValidMatches():
+    if token in self.GetValidMatches(command, None):
       # Valid file, return it.
       return token
     # Invalid file, no match.
     return None
 
-  def GetValidMatches(self, token=None):
+  def GetValidMatches(self, command, index):
     valid_files = []
-    if token == ' ' or not token:
+    if index is None or command[index] == ' ':
       token = ''
+    else:
+      token = command[index]
 
     if self.default_path:
       token = os.path.join(self.default_path, token)
