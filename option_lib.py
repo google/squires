@@ -357,6 +357,9 @@ class ListMatch(BaseMatch):
 
   def Matches(self, command, index):
     """Determine if this option matches the command string."""
+    if not command[index].strip():
+      # Never match the empty command line.
+      return 0
     for value in self.match:
       if self._GetRegex(value):
         if re.match(self._GetRegex(value), command[index]):

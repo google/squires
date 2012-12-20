@@ -118,9 +118,10 @@ class MatchTest(unittest.TestCase):
     bm = option_lib.ListMatch(
         ['red', 'black', 'blue', 'blueish', 'green'], 'A colour',
         option_lib.Option('foo'))
-    self.assertTrue(bm.Matches(['red'], 0))
-    self.assertTrue(bm.Matches(['blue'], 0))
-    self.assertFalse(bm.Matches(['white'], 0))
+    self.assertEqual(1, bm.Matches(['red'], 0))
+    self.assertEqual(1, bm.Matches(['blue'], 0))
+    self.assertEqual(0, bm.Matches(['white'], 0))
+    self.assertEqual(0, bm.Matches([' '], 0))
 
     self.assertEqual('blue', bm.GetMatch(['blue'], 0))
     self.assertEqual('blueish', bm.GetMatch(['blueish'], 0))

@@ -1153,6 +1153,8 @@ class Options(list):
                 print ' %s' % arg
             return False
           found_options.append(option.arg_val.name)
+          if option.arg_val.name in missing_options:
+            missing_options.remove(option.arg_val.name)
 
         # Note missing groups or options.
         if option.required and option.group in missing_groups:

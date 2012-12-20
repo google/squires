@@ -299,6 +299,8 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('hardware')
     command.AddOption('req1', required=True)
     command.AddOption('detailed', required=True, group='type')
+    command.AddOption('with', required=True, keyvalue=True,
+                      match=['all', 'nonw'])
     command.AddOption('terse', required=True, group='type')
     command.AddOption('lines', keyvalue=True, match='\d+')
     command.AddOption('blah', boolean=False, match='\S+')
@@ -307,28 +309,31 @@ class CommandsTest(unittest.TestCase):
     self.failIf(command.options.HasAllValidOptions([]))
     self.failIf(command.options.HasAllValidOptions(['detailed']))
     self.failIf(command.options.HasAllValidOptions(['detailed', 'terse']))
-    self.failUnless(command.options.HasAllValidOptions(['detailed', 'req1']))
+    self.failUnless(command.options.HasAllValidOptions(
+        ['detailed', 'req1', 'with', 'all']))
 
     # make sure keyvalue pair doesnt get used for other options.
     self.failUnless(command.options.HasAllValidOptions(
-        ['req1', 'detailed', 'frub', 'five', 'foobar']))
+        ['req1', 'detailed', 'with', 'all', 'frub', 'five', 'foobar']))
 
     # Missing required group
     self.failIf(command.options.HasAllValidOptions(['req1']))
 
     self.failIf(command.options.HasAllValidOptions(['software']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'software']))
+        ['detailed', 'with', 'all', 'req1', 'software']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'software', 'hardware']))
+        ['detailed', 'req1', 'with', 'all', 'software', 'hardware']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'lines', '30', 'software', 'hardware']))
+        ['detailed', 'req1', 'with', 'all', 'lines',
+         '30', 'software', 'hardware']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'software', 'hardware', 'lines', '30']))
+        ['detailed', 'req1', 'with', 'all', 'software',
+         'hardware', 'lines', '30']))
     self.failIf(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'lines', 'software', 'hardware']))
+        ['detailed', 'req1', 'with', 'all', 'lines', 'software', 'hardware']))
     self.failIf(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'software', 'hardware', 'lines']))
+        ['detailed', 'req1', 'with', 'all', 'software', 'hardware', 'lines']))
 
   def testKeyValueOption(self):
     command = self.cmd['show']['version']

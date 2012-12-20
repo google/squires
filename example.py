@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2.7
 #
 # Copyright 2010 Google Inc. All Rights Reserved.
 #
@@ -145,16 +145,8 @@ class Adventure(object):
     for item, count in self.inventory.iteritems():
       self.SlowPrint('%d# %s(s)' % (count, item))
 
-  def Fight(self, command, unused_command):
-    self.SlowPrint('Fighting %s with a %s...' % (
-        command.GetOption('enemy'),
-        command.GetOption('weapon')))
-
   def Say(self, command, unused_command):
-    if command.GetOption('shout'):
-      tone = 'shout'
-    else:
-      tone = 'mutter'
+    tone = command.GetOption('volume')
     self.SlowPrint('You %s, "%s".' % (tone, command.GetOption('words')))
 
 
@@ -198,7 +190,7 @@ def main(unused_argv):
           ),
       COMMAND('set', help='Set something.', method=adventure.Set): (
           OPTION('colour', helptext='Cli colour', match='[a-z]+',
-                 keyvalue=True, default='white'),
+                 keyvalue=True, default='white', required=True),
           OPTION('error', helptext='Make an error', boolean=True),
           OPTION('file', helptext='Dump gold ot file', is_path=True,
                  keyvalue=True, default='default.txt'),
@@ -213,13 +205,8 @@ def main(unused_argv):
           ),
       COMMAND('look', help='Look around the room', method=adventure.Look): (
           OPTION('direction', helptext='Direction to look',
-                 boolean=False, match='\w+', default='up'),
-          ),
-      COMMAND('fight', help='Fight an enemy', method=adventure.Fight): (
-          OPTION('enemy', helptext='Enemy to fight', boolean=False,
-                 keyvalue=True, match='\S+'),
-          OPTION('weapon', helptext='Weapon to use', boolean=False,
-                 keyvalue=False, match='\S+'),
+                 boolean=False, match='\w+', default='up'
+                ),
           ),
       COMMAND('walk', help='Walk somewhere', method=adventure.Walk): (
           OPTION('direction', helptext='Direction to walk',
@@ -229,7 +216,13 @@ def main(unused_argv):
       COMMAND('inventory', help='See your inventory',
               method=adventure.Inventory): {},
       COMMAND('say', help='Say something', method=adventure.Say): (
-          OPTION('shout', helptext='Shout it out!'),
+          OPTION('volume', boolean=False,
+                 match={'whisper': 'Very quiet',
+                        'mumble': 'not so quiet',
+                        'talk': 'talk normally',
+                        'shout': 'shout it out!',
+                        'yell': 'bellow!'},
+                 default='talk'),
           OPTION('words', helptext='Words to say', keyvalue=True,
                  boolean=False, match='.+', multiword=True),
           ),
