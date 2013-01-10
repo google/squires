@@ -44,7 +44,10 @@ import inspect
 import os
 import re
 import shlex
+import signal
+import subprocess
 import sys
+import time
 import traceback
 
 import option_lib
@@ -621,11 +624,19 @@ class Command(dict):
 
   def GetOption(self, option_name):
     """Fetches an option from command line. See Options().GetOption()."""
-    return self.options.GetOption(self.command_line, option_name)
+    if self.WillPipe(self.command_line):
+      return self.options.GetOption(
+          pipe.SplitByPipe(self.command_line)[0], option_name)
+    else:
+      return self.options.GetOption(self.command_line, option_name)
 
   def GetGroupOption(self, group):
     """Fetches set options in a group. See Options().GetGroupOption()."""
-    return self.options.GetGroupOption(self.command_line, group)
+    if self.WillPipe(self.command_line):
+      return self.options.GetGroupOption(
+          pipe.SplitByPipe(self.command_line)[0], group)
+    else:
+      return self.options.GetGroupOption(self.command_line, group)
 
   def GetCommand(self, cmdline):
     """Returns the command object for the given commandline.
@@ -674,11 +685,11 @@ class Command(dict):
       print '\r',  # Backspace due to a readline quirk adding spurious space.
       if cmd.WillPipe(cmd.command_line):
         retval = None
-        last = pipe.SplitByPipe(cmd.command_line)[1]
+        first, last = pipe.SplitByPipe(cmd.command_line)
         # Run "<pipecmd> start" to init pipe.
         if cmd.GetPipeTree().Execute(last + ['start']):
           try:
-            retval = cmd.Run(cmd.command_line)
+            retval = cmd.Run(first)
           finally:
             # Run "<pipecmd> stop" to close pipe.
             cmd.GetPipeTree().Execute(last + ['stop'])
@@ -707,6 +718,48 @@ class Command(dict):
       readline.remove_history_item(0)
     for item in self._saved_history:
       readline.add_history(item)
+
+class ShellCommand(Command):
+  """A type of Command that is useful for direct shell pipelines."""
+
+  def Completer(self, line):
+    """Command line completer, for now just return a default placeholder."""
+    return {'<command>': 'Shell command to pipe output through'}
+
+  def Execute(self, command):
+    """Called immediately before and immediately after the primary command."""
+    action = command[-1]
+    pipe = ' '.join(command[:-1])
+    if len(command) < 2:
+      print '% Invalid pipe command.'
+      return False
+
+    if action == 'start':  # Initialise shell pipe.
+      return self._StartPipe(pipe)
+    elif action == 'stop':  # Terminate shell pipe.
+      return self._StopPipe()
+    else:
+      print '%% Should not get here! (%s)' % command
+      return False
+
+  def _StartPipe(self, pipe):
+    """Direct stdout to the supplied pipe."""
+    self._shell = subprocess.Popen(pipe, stdin=subprocess.PIPE, shell=True)
+    self._prevfd = os.dup(sys.stdout.fileno())
+    os.dup2(self._shell.stdin.fileno(), sys.stdout.fileno())
+    self._prev = sys.stdout
+    return True
+
+  def _StopPipe(self):
+    """Restore stdout."""
+    self._shell.stdin.close()
+    os.dup2(self._prevfd, self._prev.fileno())
+    sys.stdout = self._prev
+    # .wait() can deadlock, so instead .poll() until terminated.
+    while self._shell.poll() is None:
+      time.sleep(0.05)
+    del self._shell
+    return True
 
 
 class Options(list):
@@ -1221,13 +1274,15 @@ class OptionDefinition(Definition):
 class PipeTreeDefinition(Definition):
   """Definition for a tree of Pipes."""
 
-
 class PipeDefinition(Definition):
   """Definition for a Pipe in the tree."""
 
+class PipeShellDefinition(Definition):
+  """Definition for a shell pipe."""
+
 
 def Definitions():
-  """Returns a list of the above definitions."""
+  """Returns a list of the above definitions useful in a pipe tree."""
   return CommandDefinition, OptionDefinition, PipeTreeDefinition, PipeDefinition
 
 
@@ -1272,6 +1327,9 @@ def ParseTree(joint, tree):
     elif isinstance(item, OptionDefinition):
       # Option.
       joint.AddOption(*item.args, **item.kwargs)
+    elif isinstance(item, PipeShellDefinition):
+      pipetree = ShellCommand()
+      joint.pipetree = pipetree
     elif isinstance(item, PipeTreeDefinition):
       # Define a pipe tree at this point.
       pipetree = Command()
@@ -1297,3 +1355,4 @@ DEFAULT_PIPETREE = {
                 required=True),
     ),
 }
+

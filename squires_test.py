@@ -15,7 +15,9 @@
 # permissions and limitations under the License.
 
 import cStringIO
+import os
 import sys
+import tempfile
 import unittest
 
 import squires
@@ -321,12 +323,12 @@ class CommandsTest(unittest.TestCase):
 
     self.failIf(command.options.HasAllValidOptions(['software']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'with', 'all', 'req1', 'software']))
+        ['detailed', 'req1', 'with', 'all', 'software']))
     self.failUnless(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software', 'hardware']))
     self.failUnless(command.options.HasAllValidOptions(
-        ['detailed', 'req1', 'with', 'all', 'lines',
-         '30', 'software', 'hardware']))
+        ['detailed', 'req1', 'with', 'all', 'lines', '30',
+         'software', 'hardware']))
     self.failUnless(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software',
          'hardware', 'lines', '30']))
@@ -694,11 +696,13 @@ class CommandsTest(unittest.TestCase):
     COMMAND = squires.CommandDefinition
     PIPE = squires.PipeDefinition
     PIPETREE = squires.PipeTreeDefinition
+    OPTION = squires.OptionDefinition
     pipe1 = {
         PIPE('grep', pipe=testPipe()): {}
     }
     tree = {
         COMMAND('one', method=squires, help='ONE'): {
+            OPTION('slow', boolean=True): {},
             PIPETREE(tree=pipe1): {},
         },
         COMMAND('two', method=squires, help='TWO'): {
@@ -715,11 +719,39 @@ class CommandsTest(unittest.TestCase):
     self.assertTrue(isinstance(root['one'].GetPipeTree()['grep'].pipe,
                                testPipe))
 
+    root['one'].command_line = ['slow', '|', 'grep', 'bar']
+    self.assertTrue(root['one'].GetOption('slow'))
+    root['one'].command_line = ['|', 'grep', 'slow']
+    self.assertIsNone(root['one'].GetOption('slow'))
+
     # Test 'WillPipe()'
     self.assertTrue(root['two']['four'].WillPipe(
         ['two', 'four', squires.PIPE_CHAR, 'grep']))
     self.assertFalse(root['two']['four'].WillPipe(
         ['two', 'four', 'grep']))
+
+
+class ShellCommandTest(unittest.TestCase):
+  def testShellCommand(self):
+    cmd = squires.ShellCommand('blah')
+    self.assertEqual({'<command>': 'Shell command to pipe output through'},
+                     cmd.Completer(['some', 'command']))
+    # Proper testing is as follows:
+    # - Generating a temporary filename.
+    # - Opening a pipe to cat to that filename.
+    # - Printing text to 'stdout'
+    # - Closing the pipe and verifying the file contents.
+    testtext = 'This is a test'
+    tmpfile = tempfile.mkstemp()[1]
+    cmd._StartPipe("cat > %s" % tmpfile)
+    print testtext
+    cmd._StopPipe()
+    print 'Test data.'  # Should not be in shell pipeline.
+    return
+    try:
+      self.assertEqual(testtext, open(tmpfile).read())
+    finally:
+      os.remove(tmpfile)
 
 
 if __name__ == '__main__':

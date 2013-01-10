@@ -171,7 +171,8 @@ def main(unused_argv):
   COMMAND, OPTION, PIPETREE, PIPE = squires.Definitions()
 
   tree = {
-      PIPETREE(tree=squires.DEFAULT_PIPETREE): {},
+#      PIPETREE(tree=squires.DEFAULT_PIPETREE): {},
+      squires.PipeShellDefinition(): {},
       COMMAND('use', help='Use an item'): {
           COMMAND('weapon', help='Use a weapon', method=adventure.UseWeapon): (
               OPTION('item', helptext='Weapon to use', group='item',
