@@ -203,6 +203,8 @@ def main(unused_argv):
                  match={'on': 'Set linewrap on', 'off': 'Set linewrap off'}),
           OPTION('strength', helptext='Set strength', keyvalue=True,
                  match=adventure.GetStrengths, hidden=True, default='strong'),
+          OPTION('device', helptext='Change a device', keyvalue=True,
+                 match='\S+', required=True, group='a'),
           ),
       COMMAND('look', help='Look around the room', method=adventure.Look): (
           OPTION('direction', helptext='Direction to look',

@@ -296,6 +296,9 @@ class Command(dict):
     except (KeyboardInterrupt, EOFError), e:
       # Catch ctrl-c and eof and pass up.
       raise
+    except IOError, e:
+      # Would only be seen by a pipe. Suppress useless error.
+      pass
     except Exception, e:
       # Other exceptions whilst running command have trace
       # printed, then back to the prompt.
@@ -729,8 +732,14 @@ class ShellCommand(Command):
   def Execute(self, command):
     """Called immediately before and immediately after the primary command."""
     action = command[-1]
-    pipe = ' '.join(command[:-1])
-    if len(command) < 2:
+    cmd = []
+    for token in command[:-1]:
+      if ' ' in token:
+        cmd.append('"%s"' % token)
+      else:
+        cmd.append(token)
+    pipe = ' '.join(cmd)
+    if len(cmd) < 1:
       print '% Invalid pipe command.'
       return False
 
@@ -964,7 +973,7 @@ class Options(list):
     required_options = set()
     # Build a list of required options.
     for option in self:
-      if option.required and not option.group:
+      if option.required and not option.group and not option.arg_key:
         required_options.add(option.name)
     return required_options
 
@@ -1050,7 +1059,8 @@ class Options(list):
       if (
           (option in found_options) or  # Already have this option.
           (option.hidden and not SHOW_HIDDEN) or  # Dont show hidden options.
-          (option.group in seen_groups) or  # Already have a group member.
+          # Already have a group member.
+          (option.group in seen_groups and not option.arg_key) or
           # Position is not valid at this token.
           (option.position >= 0 and last_index != option.position) or
           # No match for this option (unless no token is present).
