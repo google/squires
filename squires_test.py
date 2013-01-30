@@ -147,6 +147,34 @@ class CommandsTest(unittest.TestCase):
     cmd.command_line = ['1.1.1.1', '2.2.2.2', 'user']
     self.failUnlessEqual(cmd.GetOption('<filename>'), None)
 
+  def testSimilarlyNamedKeyvalueOptions(self):
+    cmd = self.cmd['show']['interface']
+    cmd.AddOption('device_remote', keyvalue=True, match='\S+')
+    cmd.AddOption('device', keyvalue=True, match='\S+')
+    cmd.AddOption('device_all', keyvalue=True, match='\S+')
+    cmd.command_line = ['device', 'one']
+    self.assertIsNone(cmd.GetOption('device_remote'))
+    self.assertIsNone(cmd.GetOption('device_all'))
+    self.failUnlessEqual('one', cmd.GetOption('device'))
+    cmd.command_line = ['device_all', 'two']
+    self.assertIsNone(cmd.GetOption('device'))
+    self.assertIsNone(cmd.GetOption('device_remote'))
+    self.failUnlessEqual('two', cmd.GetOption('device_all'))
+
+  def testSimilarlyNamedOptions(self):
+    cmd = self.cmd['show']['interface']
+    cmd.AddOption('device_remote')
+    cmd.AddOption('device')
+    cmd.AddOption('device_all')
+    cmd.command_line = ['device']
+    self.failUnless(cmd.GetOption('device'))
+    self.assertIsNone(cmd.GetOption('device_remote'))
+    self.assertIsNone(cmd.GetOption('device_all'))
+    cmd.command_line = ['device_all']
+    self.assertIsNone(cmd.GetOption('device'))
+    self.assertIsNone(cmd.GetOption('device_remote'))
+    self.failUnless(cmd.GetOption('device_all'))
+
   def testGetGroupOption(self):
     """Test group options."""
     cmd = self.cmd['show']['interface']
@@ -305,7 +333,7 @@ class CommandsTest(unittest.TestCase):
                       match=['all', 'nonw'])
     command.AddOption('terse', required=True, group='type')
     command.AddOption('lines', keyvalue=True, match='\d+')
-    command.AddOption('blah', boolean=False, match='\S+')
+#    command.AddOption('blah', boolean=False, match='\S+')
     command.AddOption('frub', boolean=False, keyvalue=True, match='\S+')
 
     self.failIf(command.options.HasAllValidOptions([]))
@@ -316,7 +344,7 @@ class CommandsTest(unittest.TestCase):
 
     # make sure keyvalue pair doesnt get used for other options.
     self.failUnless(command.options.HasAllValidOptions(
-        ['req1', 'detailed', 'with', 'all', 'frub', 'five', 'foobar']))
+        ['req1', 'detailed', 'with', 'all', 'frub', 'five']))
 
     # Missing required group
     self.failIf(command.options.HasAllValidOptions(['req1']))

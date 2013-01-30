@@ -977,11 +977,12 @@ class Options(list):
         required_options.add(option.name)
     return required_options
 
-  def _FindOptions(self, line):
+  def _FindOptions(self, line, exact=True):
     """Find options present on the command line.
 
     Args:
       line: A list of str, the command line.
+      exact: A bool. If True, tokens must match boolean options exactly.
 
     Returns:
       A tuple. The first element is a dict of options that
@@ -1002,6 +1003,8 @@ class Options(list):
           continue
         match = option.FindMatches(line, idx)
         if match.count:
+          if exact and option.boolean and token != option.name:
+            continue
           idx += match.count
           if option.arg_val is not None:
             val_match = option.arg_val.FindMatches(line, idx)
@@ -1049,7 +1052,7 @@ class Options(list):
       find_line = line[:-1]
     else:
       find_line = line
-    found_options, seen_groups = self._FindOptions(find_line)
+    found_options, seen_groups = self._FindOptions(find_line, exact=False)
 
     # Ensure has all the required options present.
     has_required = self.HasAllValidOptions(line[:-1])
@@ -1154,6 +1157,8 @@ class Options(list):
     idx = 0
     while idx < len(command):
       token = command[idx]
+      option_matches = []
+      jump = 0  # Tracks how far to jump ahead in tokens after a match.
       # Find option matching this token.
       for option in self:
         if option.name in found_options:
@@ -1169,7 +1174,12 @@ class Options(list):
           # Option does not match anyway.
           continue
 
-        idx += match.count-1
+        # Boolean options must be exact match (they need to be
+        # disambiguated before here anyway).
+        if option.boolean and option.name != token:
+          continue
+
+        jump = match.count-1
         found_options.append(option.name)
 
         # A 'multiple match' error is displayed unless the
@@ -1191,12 +1201,12 @@ class Options(list):
 
         # Check key/value options have value part present.
         if option.arg_val is not None:
-          if idx == len(command) - 1:
+          if idx+jump == len(command) - 1:
             # EOF before the value part.
             if describe:
               print '%% Argument for option "%s" missing.' % option.name
             return False
-          vmatch = option.arg_val.FindMatches(command, idx+1)
+          vmatch = option.arg_val.FindMatches(command, idx+jump+1)
           if not vmatch.count:
             # Arg does not match.
             if describe:
@@ -1206,8 +1216,8 @@ class Options(list):
             else:
               print
             return False
-          idx += vmatch.count
-          tok = command[idx]
+          jump += vmatch.count
+          tok = command[idx+jump]
           if len(vmatch.valid) != 1 and tok not in vmatch.valid:
             if describe:
               print '%% Multiple matches for "%s" argument "%s":' % (
@@ -1227,15 +1237,20 @@ class Options(list):
               option.name in missing_options):
           missing_options.remove(option.name)
 
-        # At this point a matching option is found. Break from
-        # looking for others.
-        break
+        # At this point a matching option is found.
+        option_matches.append(option)
       else:
-        # No option found for this token.
-        unknown_tokens.append(token)
+        if not option_matches:
+          # No option found for this token.
+          unknown_tokens.append(token)
+
+      if len(option_matches) > 1:
+        print 'Multiple matches for %s:' % token
+        print '\n'.join([' '+option.name for option in option_matches])
+        return False
 
       # Junp to next token on line, then repeat loop.
-      idx += 1
+      idx += jump+1
 
     if unknown_tokens or missing_groups or missing_options:
       if describe:
