@@ -303,6 +303,9 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge']),
         ['show', 'interface', 'intf', 'ge'])
+    self.failUnlessEqual(
+        self.cmd.Disambiguate(['sh', 'inter', 'ters', 'ters']),
+        ['show', 'interface', 'terse', 'ters'])
 
   def testMultiword(self):
     cmd = self.cmd['show']['interface']
@@ -333,7 +336,7 @@ class CommandsTest(unittest.TestCase):
                       match=['all', 'nonw'])
     command.AddOption('terse', required=True, group='type')
     command.AddOption('lines', keyvalue=True, match='\d+')
-#    command.AddOption('blah', boolean=False, match='\S+')
+    command.AddOption('blah', boolean=False, match='\S+')
     command.AddOption('frub', boolean=False, keyvalue=True, match='\S+')
 
     self.failIf(command.options.HasAllValidOptions([]))
@@ -344,7 +347,7 @@ class CommandsTest(unittest.TestCase):
 
     # make sure keyvalue pair doesnt get used for other options.
     self.failUnless(command.options.HasAllValidOptions(
-        ['req1', 'detailed', 'with', 'all', 'frub', 'five']))
+        ['req1', 'detailed', 'with', 'all', 'frub', 'five', 'foobar']))
 
     # Missing required group
     self.failIf(command.options.HasAllValidOptions(['req1']))
@@ -481,24 +484,24 @@ class CommandsTest(unittest.TestCase):
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
 
     self.fake_buffer = 'sh'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'show' +
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('sh', 0), 'show' +
                          squires.COMPLETE_SUFFIX)
     self.fake_buffer = 'show vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version' +
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('vers', 0), 'version' +
                          squires.COMPLETE_SUFFIX)
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'version' +
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('vers', 0), 'version' +
                          squires.COMPLETE_SUFFIX)
 
     self.fake_buffer = 'show version '
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), None)
+    self.failUnlessEqual(self.cmd.ReadlineCompleter(' ', 0), None)
 
     command = self.cmd['show']['version']
     command.AddOption('software')
     command.AddOption('hardware')
     self.fake_buffer = 'show version s'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('', 0), 'software' +
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('s', 0), 'software' +
                          squires.COMPLETE_SUFFIX)
     squires.readline.get_line_buffer = get_line_buffer
 
@@ -554,17 +557,19 @@ class CommandsTest(unittest.TestCase):
     self.cmd['show']['interface'].AddOption(name='text', helptext='text help')
     self.cmd['show']['interface'].AddOption(name='test',
                                             helptext='test help')
-    self.cmd['show']['interface'].AddOption(name='detail',
-                                            helptext='detail help',
-                                            group='type')
-    self.cmd['show']['interface'].AddOption(name='extensive',
-                                            helptext='extensive help',
-                                            group='type')
-    self.cmd['show']['interface'].AddOption(name='lines',
-                                            helptext='lines to show',
-                                            keyvalue=True,
-                                            default=25,
-                                            match='\d+')
+    self.cmd['show']['interface'].AddOption(
+        name='detail', helptext='detail help', group='type')
+    self.cmd['show']['interface'].AddOption(
+        name='extensive', helptext='extensive help', group='type')
+    self.cmd['show']['interface'].AddOption(
+        name='name', helptext='Name of interface', keyvalue=True,
+        match='\S+', group='ifspec')
+    self.cmd['show']['interface'].AddOption(
+        name='index', helptext='Index of interface', keyvalue=True,
+        match='\S+', group='ifspec')
+    self.cmd['show']['interface'].AddOption(
+        name='lines', helptext='lines to show', keyvalue=True,
+        default=25, match='\d+')
 
     # Test two options
     self.failUnlessEqual(
@@ -584,25 +589,27 @@ class CommandsTest(unittest.TestCase):
         {'test': 'test help', 'text': 'text help'})
 
     # All options should be returned
-    keys = ['detail', 'extensive', 'lines', 'test', 'text']
-    values = ['detail help', 'extensive help', 'lines to show', 'test help',
-              'text help']
+    keys = ['detail', 'extensive', 'index', 'lines', 'name', 'test', 'text']
+    values = ['Index of interface', 'Name of interface', 'detail help',
+              'extensive help', 'lines to show', 'test help', 'text help',]
     res = self.cmd['show']['interface'].options.GetOptionCompletes([' '])
     self.failUnlessEqual(keys, sorted(res.keys()))
     self.failUnlessEqual(values, sorted(res.values()))
 
     # A group member already present, excluded other groups members
     # from completes
-    keys = ['lines', 'test', 'text']
-    values = ['lines to show', 'test help', 'text help']
+    keys = ['index', 'lines', 'name', 'test', 'text']
+    values = ['Index of interface', 'Name of interface', 'lines to show',
+              'test help', 'text help']
     res = self.cmd['show']['interface'].options.GetOptionCompletes(['de', ' '])
     self.failUnlessEqual(keys, sorted(res.keys()))
     self.failUnlessEqual(values, sorted(res.values()))
 
     # All available subcommands and options.
-    keys = ['detail', 'extensive', 'lines', 'teal', 'terse', 'test', 'text',
-            'xe1', 'xe10']
-    values = ['detail help', 'extensive help', 'lines to show', 'teal help',
+    keys = ['detail', 'extensive', 'index', 'lines', 'name', 'teal',
+            'terse', 'test', 'text', 'xe1', 'xe10']
+    values = ['Index of interface', 'Name of interface', 'detail help',
+              'extensive help', 'lines to show', 'teal help',
               'terse help', 'test help', 'text help', 'xe1 help', 'xe10 help']
     res = self.cmd['show']['interface'].Completer([' '])
     self.failUnlessEqual(keys, sorted(res.keys()))
@@ -629,8 +636,9 @@ class CommandsTest(unittest.TestCase):
         self.cmd['show']['interface'].Completer(['tex', 'de', 'ex']))
 
     # Only non-included options are returned
-    keys = ['detail', 'extensive', 'lines', 'test']
-    values = ['detail help', 'extensive help', 'lines to show', 'test help']
+    keys = ['detail', 'extensive', 'index', 'lines', 'name', 'test']
+    values = ['Index of interface', 'Name of interface', 'detail help',
+              'extensive help', 'lines to show', 'test help']
     res = self.cmd['show']['interface'].Completer(['tex', ' '])
     self.failUnlessEqual(keys, sorted(res.keys()))
     self.failUnlessEqual(values, sorted(res.values()))
@@ -645,6 +653,18 @@ class CommandsTest(unittest.TestCase):
     self.failUnlessEqual(
         self.cmd['show']['interface'].Completer(['tex', 'lin', ' ']),
         {'<lines>': 'lines to show [Default: 25]'})
+    # One with a group.
+    self.failUnlessEqual(
+        self.cmd['show']['interface'].Completer(['index', ' ']),
+        {'<index>': 'Index of interface'})
+    self.failUnlessEqual(
+        self.cmd['show']['interface'].Completer(['index', '123', ' ']),
+        {'detail': 'detail help',
+         'extensive': 'extensive help',
+         'lines': 'lines to show',
+         'test': 'test help',
+         'text': 'text help'})
+
 
   def testReadlineFuncs(self):
     root = squires.Command('<root>')

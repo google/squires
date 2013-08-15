@@ -109,10 +109,16 @@ class MatchTest(unittest.TestCase):
 
   def testMultiword(self):
     opt = option_lib.Option(name='<interface>', multiword=True)
-    bm = option_lib.RegexMatch('\d+[^\d]+\d+', 'A Juniper ethernet interface', opt)
+    bm = option_lib.RegexMatch(
+        '\d+[^\d]+\d+', 'A Juniper ethernet interface', opt)
     self.assertEqual(0, bm.Matches(['one', 'two', '344'], 0))
-    self.assertEqual(2, bm.Matches(['one', '34 two', '34 and 35', 'blahfrub'], 1))
-    self.assertEqual(2, bm.Matches(['zero', 'one', '34 two', '34 and 35', 'blahfrub'], 2))
+    self.assertEqual(2,
+                     bm.Matches(['one', '34 two', '34 and 35', 'blahfrub'], 1))
+    self.assertEqual(
+        2, bm.Matches(['zero', 'one', '34 two', '34 and 35', 'blahfrub'], 2))
+    self.assertEqual({'blahfrub': 'A Juniper ethernet interface'},
+                     bm.GetValidMatches(
+                         ['one', '34 two', '34 and 35', 'blahfrub'], 1))
 
   def testList(self):
     bm = option_lib.ListMatch(
@@ -210,6 +216,7 @@ class MatchTest(unittest.TestCase):
     self.assertEqual({'foobar': 'foobar'},
                      bm.GetValidMatches(['fo'], 0))
 
+
   def testMethod(self):
     def MatchMethod(option):
       return {
@@ -281,6 +288,15 @@ class MatchTest(unittest.TestCase):
     if '.svn/' in matches:
       del matches['.svn/']
     self.assertEqual({'testdata/': ''}, matches)
+
+    fm = option_lib.PathMatch(
+        None,
+        option_lib.Option('foo', default='blah.txt'),
+        default_path='./testdata/')
+    matches = fm.GetValidMatches([''], 0)
+    if '.svn/' in matches:
+      del matches['.svn/']
+    self.assertEqual({'boo1': '', 'boo2': '', 'file1': ''}, matches)
 
 
 if __name__ == '__main__':

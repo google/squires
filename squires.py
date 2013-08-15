@@ -122,6 +122,7 @@ class Command(dict):
     self.method = method
     self.pipetree = None
     self.meta = None
+    self._completion_cache = (None, None)
 
     if runnable is None:
       # Set to 'True' if a method is supplied.
@@ -137,6 +138,26 @@ class Command(dict):
         self.help = method.__doc__
     self.execute_command_string = 'Execute this command'
     self.orig_ancestors = []
+
+  def __str__(self):
+    attribs = ["'%s'" % self.name]
+    if self.help:
+      attribs.append("help='%s'" % self.help)
+    if self.method:
+      attribs.append("method='%s'" % self.method)
+    if self.hidden:
+      attribs.append('hidden=True')
+    opts = []
+    for option in self.options:
+      opts.append(str(option))
+    subs = []
+    for command in self.values():
+      subs.append(str(command))
+    spaces = '   '*len(self.path)
+    return "COMMAND(%s):\n%s\n%s" % (
+        ', '.join(attribs),
+        spaces + ('\n%s' % spaces).join(opts),
+        spaces + ('\n%s' % spaces).join(subs))
 
   def PrepareReadline(self):
     """Prepares readline for our use. DEPRECATED."""
@@ -306,7 +327,7 @@ class Command(dict):
     finally:
       self._RestoreHistory()
 
-  def ReadlineCompleter(self, unused_word, state):
+  def ReadlineCompleter(self, word, state):
     """Readline completion handler.
 
     This method is registered with readline to perform command
@@ -316,11 +337,17 @@ class Command(dict):
     this method.
 
     Args:
-      unused_word: A string, the current word under the cursor. (unused)
+      word: A string, the current word under the cursor.
       state: An int, the 'tab press number', indexed at zero.
     Returns:
       A string, the next possible completion, or None.
     """
+    if self._completion_cache[0] == word:
+      next_completion = self._completion_cache[1][state]
+      if next_completion is None:
+        self._completion_cache = (None, None)
+      return next_completion
+
     initial_candidates = self.FindCurrentCandidates()
     if not initial_candidates:
       print '\nNo valid completions.'
@@ -334,6 +361,7 @@ class Command(dict):
         # display of these instead of auto-completing.
         candidates.append('%@%@%@' + cand)
     candidates.append(None)  # readline expects None at the end.
+    self._completion_cache = (word, candidates)
     return candidates[state]
 
   def FormatCompleterOptions(self, unused_substitution, unused_matches,
@@ -413,8 +441,8 @@ class Command(dict):
     """
 
     # First disambiguate as much as possible.
-    self.command_line = current_line
     line = self.Disambiguate(current_line)
+    self.command_line = line
 
     # If a pipe is present, tab complete down the pipeline.
     if self.WillPipe(line):
@@ -665,7 +693,7 @@ class Command(dict):
     # First command line token is a subcommand, pass down.
     return self[self.command_line[0]].GetCommand(self.command_line[1:])
 
-  def Execute(self, command):
+  def Execute(self, command, suppress_backspace=False):
     """Executes the command given.
 
     'command' is the command at this point. eg, if this command
@@ -679,13 +707,16 @@ class Command(dict):
 
     Args:
       command: (list) The command to run, split into tokens..
+      suppress_backspace: (bool) If True, dont print
+        initial (realine workaround) backspace.
 
     Returns:
       The value returned by a command's 'Run' method. Else None.
     """
     cmd = self.GetCommand(command)
     if cmd.options.HasAllValidOptions(cmd.command_line, describe=True):
-      print '\r',  # Backspace due to a readline quirk adding spurious space.
+      if not suppress_backspace:
+        print '\r',  # Backspace due to a readline quirk adding spurious space.
       if cmd.WillPipe(cmd.command_line):
         retval = None
         first, last = pipe.SplitByPipe(cmd.command_line)
@@ -944,7 +975,8 @@ class Options(list):
     # the command line, attempt to expand the option to its full
     # string.
     # Stop processing if an ambiguous token is reached.
-    for index, word in enumerate(command):
+    index = 0
+    while index < len(command):
       candidates = []
       for option in self:
         # Look through options. Any that match the current word
@@ -952,11 +984,11 @@ class Options(list):
         match = option.FindMatches(command, index)
         if match.count:
           candidates.extend(match.valid.keys())
-      if len(candidates) != 1:
-        # Skip out of completion if less or more than one option matches.
-        break
-      # Expanded command line is built with uniquely matching options.
-      newcommand[index] = candidates[0]
+          index += match.count-1
+      if len(candidates) == 1:
+        # Expanded command line is built with uniquely matching options.
+        newcommand[index] = candidates[0]
+      index += 1
     return newcommand
 
   def _GetRequiredGroups(self):
@@ -977,12 +1009,11 @@ class Options(list):
         required_options.add(option.name)
     return required_options
 
-  def _FindOptions(self, line, exact=True):
+  def _FindOptions(self, line):
     """Find options present on the command line.
 
     Args:
       line: A list of str, the command line.
-      exact: A bool. If True, tokens must match boolean options exactly.
 
     Returns:
       A tuple. The first element is a dict of options that
@@ -996,14 +1027,16 @@ class Options(list):
     while idx < len(line):
       token = line[idx]
       for option in self:
-        if option.name in found_options:
+        if option in found_options:
           continue
         if option.arg_key is not None:
           # Value of key-value, matches separately.
           continue
         match = option.FindMatches(line, idx)
         if match.count:
-          if exact and option.boolean and token != option.name:
+          if option.boolean and token != option.name:
+            # Token only partually matched the option, so likely
+            # to fully match another option instead.
             continue
           idx += match.count
           if option.arg_val is not None:
@@ -1052,7 +1085,8 @@ class Options(list):
       find_line = line[:-1]
     else:
       find_line = line
-    found_options, seen_groups = self._FindOptions(find_line, exact=False)
+    find_line = self.Disambiguate(find_line)
+    found_options, seen_groups = self._FindOptions(find_line)
 
     # Ensure has all the required options present.
     has_required = self.HasAllValidOptions(line[:-1])
@@ -1070,6 +1104,10 @@ class Options(list):
           (last_token != ' ' and not
            option.FindMatches(line, last_index).count)):
         return True
+      for opt in self:
+        # If another option with 'position' is here, skip this option.
+        if opt.position >= 0 and last_index == opt.position and opt != option:
+          return True
       return False
 
     # Go through options that were not found on the line, and
@@ -1081,8 +1119,9 @@ class Options(list):
       if option.arg_key is not None:
         # We have the value of a key/value option. Check the previous token
         # is the key and is valid, then add this option as the only completion.
-        if (len(line) < 2 or not
-            option.arg_key.FindMatches(line, last_index-1).count):
+        if (len(line) < 2 or
+            not option.arg_key.FindMatches(line, last_index-1).count or
+            option.arg_key.name != line[last_index-1]):
           # Line too short or previous token doesnt match
           continue
         # Reset all completes, as we only want whetever matches the keyvalue.
@@ -1157,8 +1196,6 @@ class Options(list):
     idx = 0
     while idx < len(command):
       token = command[idx]
-      option_matches = []
-      jump = 0  # Tracks how far to jump ahead in tokens after a match.
       # Find option matching this token.
       for option in self:
         if option.name in found_options:
@@ -1174,12 +1211,13 @@ class Options(list):
           # Option does not match anyway.
           continue
 
-        # Boolean options must be exact match (they need to be
-        # disambiguated before here anyway).
-        if option.boolean and option.name != token:
+        # As 'Disambiguate' is called before this point, ignore
+        # the option unless the token is fully disambiguated. If
+        # not, then it may have matched multiple similar options.
+        if option.boolean and token != option.name:
           continue
 
-        jump = match.count-1
+        idx += match.count-1
         found_options.append(option.name)
 
         # A 'multiple match' error is displayed unless the
@@ -1201,12 +1239,12 @@ class Options(list):
 
         # Check key/value options have value part present.
         if option.arg_val is not None:
-          if idx+jump == len(command) - 1:
+          if idx == len(command) - 1:
             # EOF before the value part.
             if describe:
               print '%% Argument for option "%s" missing.' % option.name
             return False
-          vmatch = option.arg_val.FindMatches(command, idx+jump+1)
+          vmatch = option.arg_val.FindMatches(command, idx+1)
           if not vmatch.count:
             # Arg does not match.
             if describe:
@@ -1216,8 +1254,8 @@ class Options(list):
             else:
               print
             return False
-          jump += vmatch.count
-          tok = command[idx+jump]
+          idx += vmatch.count
+          tok = command[idx]
           if len(vmatch.valid) != 1 and tok not in vmatch.valid:
             if describe:
               print '%% Multiple matches for "%s" argument "%s":' % (
@@ -1237,28 +1275,25 @@ class Options(list):
               option.name in missing_options):
           missing_options.remove(option.name)
 
-        # At this point a matching option is found.
-        option_matches.append(option)
+        # At this point a matching option is found. Break from
+        # looking for others.
+        break
       else:
-        if not option_matches:
-          # No option found for this token.
-          unknown_tokens.append(token)
-
-      if len(option_matches) > 1:
-        print 'Multiple matches for %s:' % token
-        print '\n'.join([' '+option.name for option in option_matches])
-        return False
+        # No option found for this token. Break out and generate error.
+        unknown_tokens.append(token)
+        break
 
       # Junp to next token on line, then repeat loop.
-      idx += jump+1
+      idx += 1
 
     if unknown_tokens or missing_groups or missing_options:
       if describe:
+        # Only print out the first error to avoid confusing the user.
         if unknown_tokens:
           print '%% Unknown/duplicate token(s): %s' % ', '.join(unknown_tokens)
-        if missing_groups:
+        elif missing_groups:
           print '%% Missing group(s): %s' % ', '.join(missing_groups)
-        if missing_options:
+        elif missing_options:
           print '%% Missing options(s): %s' % ', '.join(missing_options)
       return False
 

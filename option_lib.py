@@ -22,18 +22,15 @@ import os
 import re
 
 
-"""Represents a match for an option.
-
-Attributes:
-  value: A string, the text matched by the option.
-  count: An int, the count of tokens that this match swallowed. If the
-    option did not match, then this is zero.
-  reason: A str, the reason, if the match failed.
-  valid: A dict, the valid values. Keys are the value string, values
-    are the associated helptext.
-  all: A dict, similar to 'valid' but has all recognised values, even those
-    not matching the command.
-"""
+# Represents a match for an option.
+#
+# Attributes:
+#   value: A string, the text matched by the option.
+#   count: An int, the count of tokens that this match swallowed. If the
+#     option did not match, then this is zero.
+#   reason: A str, the reason, if the match failed.
+#   valid: A dict, the valid values. Keys are the value string, values
+#     are the associated helptext.
 Match = collections.namedtuple('Match', 'value count reason valid')
 
 
@@ -111,6 +108,7 @@ class Option(object):
     self.meta = meta
     if match is not None and self.boolean is None:
       self.boolean = False
+    self._match = match
 
     if self.is_path:
       if self.boolean:
@@ -135,6 +133,26 @@ class Option(object):
       self.matcher = BooleanMatch(name, self.helptext)
       if boolean is None:
         self.boolean = True
+
+  def __str__(self):
+    opts = ["'%s'" % self.name]
+    if self.helptext:
+      opts.append("help='%s'" % self.helptext)
+    if self._match:
+      opts.append("match='%s'" % self._match)
+    if self.keyvalue:
+      opts.append('keyvalue=True')
+    if self.is_path:
+      opts.append('is_path=True')
+    if self.default:
+      opts.append('default=%s' % self.default)
+    if self.required:
+      opts.append('required=True')
+    if self.multiword:
+      opts.append('multiword=True')
+    else:
+      opts.append('boolean=%s' % self.boolean)
+    return 'OPTION(%s)' % ', '.join(opts)
 
   def FindMatches(self, command, index):
     """Find possible matches for this option.
@@ -213,7 +231,7 @@ class BaseMatch(object):
 
     Returns:
       A str, the best available match. If no matches at all, return None.
-    TODO(bbuxton): Define behaviour if multiple partial matches.
+    TODO(bbuxton): Define behaviour is multiple partial matches.
   """
 
   def GetValidMatches(self, command, index):
@@ -318,7 +336,11 @@ class RegexMatch(BaseMatch):
 
     if self.Matches(command, index):
       # Token matches, return it and help string.
-      return {command[index]: self.helptext}
+      if self.option.multiword:
+        # For multiword, the last token is the match.
+        return {command[-1]: self.helptext}
+      else:
+        return {command[index]: self.helptext}
 
     return {}
 
@@ -357,10 +379,10 @@ class ListMatch(BaseMatch):
 
   def Matches(self, command, index):
     """Determine if this option matches the command string."""
-    if not command[index].strip():
-      # Never match the empty command line.
-      return 0
     for value in self.match:
+      if not command[index].strip():
+        # Never matches the empty command line.
+        return 0
       if self._GetRegex(value):
         if re.match(self._GetRegex(value), command[index]):
           return 1
@@ -587,7 +609,7 @@ class PathMatch(BaseMatch):
     ret = {}
     for filename in valid_files:
       ret[filename] = ''
-    if self.option.default:
+    if self.option.default and not token:
       ret[self.option.default] = '[Default]'
 
     return ret

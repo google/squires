@@ -149,6 +149,14 @@ class Adventure(object):
     tone = command.GetOption('volume')
     self.SlowPrint('You %s, "%s".' % (tone, command.GetOption('words')))
 
+  def Shout(self, command, unused_command):
+    tone = command.GetOption('volume')
+    self.SlowPrint('You shout, "%s".' % command.GetOption('repeat'))
+
+  def Nb(self, command, _):
+    print command.GetOption('qtype'), command.GetOption('query')
+
+
 
 class CmdRoot(squires.Command):
   """The root of the command tree."""
@@ -194,7 +202,7 @@ def main(unused_argv):
                  keyvalue=True, default='white', required=True),
           OPTION('error', helptext='Make an error', boolean=True),
           OPTION('file', helptext='Dump gold ot file', is_path=True,
-                 keyvalue=True, default='default.txt'),
+                 keyvalue=True, default='default.txt', only_dir_paths=True),
           OPTION('pager', helptext='Change screen pager', keyvalue=True,
                  match={'on': 'Enable the pager', 'off': 'Disable the pager'}),
           OPTION('power', helptext='Change power', keyvalue=True,
@@ -218,16 +226,28 @@ def main(unused_argv):
           ),
       COMMAND('inventory', help='See your inventory',
               method=adventure.Inventory): {},
-      COMMAND('say', help='Say something', method=adventure.Say): (
+      COMMAND('say', help='Say something', method=adventure.Say): {
           OPTION('volume', boolean=False,
                  match={'whisper': 'Very quiet',
                         'mumble': 'not so quiet',
                         'talk': 'talk normally',
                         'shout': 'shout it out!',
                         'yell': 'bellow!'},
-                 default='talk'),
+                 default='talk'): (),
           OPTION('words', helptext='Words to say', keyvalue=True,
-                 boolean=False, match='.+', multiword=True),
+                 boolean=False, match='.+', multiword=True): (),
+          COMMAND('shout', help='Shout', method=adventure.Shout): (
+              OPTION('repeat', helptext='Should more'),
+              OPTION('loud', helptext='Should more'),
+              ),
+          },
+      COMMAND('nb', help='NB', method=adventure.Nb): (
+          OPTION('qtype', boolean=False,
+                 match={'device': 'A device',
+                        'pop': 'A pop',
+                        'interface': 'An interface'}),
+          OPTION('query', boolean=False,
+                 match='\S+', required=True),
           ),
   }
 
