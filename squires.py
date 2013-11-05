@@ -292,6 +292,25 @@ class Command(dict):
         print
         break
 
+  def _SplitCommandLine(self, command):
+    """Split a command string into tokens.
+
+    Pipe character (|) will be split into its own token.
+    Backslash (\) is used as escape character.
+    Characters within (single and double) quotes will not be split.
+
+    Args:
+      command: A string, the command to split.
+    Returns:
+      A list of strings.
+    """
+    lex = shlex.shlex(command, posix=True)
+    lex.commenters = ''  # disable comments, just like shlex.split
+    # Includes all ASCII printable chars other than |\"'.
+    lex.wordchars += '!#$%&()*+,-./:;<=>?@[]^_`{}~'
+
+    return list(lex)
+
   def Prompt(self, prompt=None):
     """Prompt user (with readline) then execute command.
 
@@ -306,7 +325,7 @@ class Command(dict):
     self._ReadlineUnprepare()
 
     try:
-      split_line = shlex.split(line)
+      split_line = self._SplitCommandLine(line)
     except ValueError, e:
       print '%% %s' % e  # Unterminated quote or other parse error.
       return
@@ -1106,7 +1125,12 @@ class Options(list):
         return True
       for opt in self:
         # If another option with 'position' is here, skip this option.
-        if opt.position >= 0 and last_index == opt.position and opt != option:
+        if (opt.position >= 0 and last_index == opt.position and
+            opt.name != option.name):
+          return True
+      for opt in found_options:
+        # Multiword options disallow further options.
+        if opt.name != option.name and opt.multiword:
           return True
       return False
 
@@ -1415,4 +1439,3 @@ DEFAULT_PIPETREE = {
                 required=True),
     ),
 }
-

@@ -17,7 +17,8 @@
 import os
 import unittest
 
-import option_lib
+import google3
+from squires import option_lib
 
 TEST_PATH = '.'
 
@@ -109,11 +110,9 @@ class MatchTest(unittest.TestCase):
 
   def testMultiword(self):
     opt = option_lib.Option(name='<interface>', multiword=True)
-    bm = option_lib.RegexMatch(
-        '\d+[^\d]+\d+', 'A Juniper ethernet interface', opt)
+    bm = option_lib.RegexMatch('\d+[^\d]+\d+', 'A Juniper ethernet interface', opt)
     self.assertEqual(0, bm.Matches(['one', 'two', '344'], 0))
-    self.assertEqual(2,
-                     bm.Matches(['one', '34 two', '34 and 35', 'blahfrub'], 1))
+    self.assertEqual(2, bm.Matches(['one', '34 two', '34 and 35', 'blahfrub'], 1))
     self.assertEqual(
         2, bm.Matches(['zero', 'one', '34 two', '34 and 35', 'blahfrub'], 2))
     self.assertEqual({'blahfrub': 'A Juniper ethernet interface'},
@@ -257,6 +256,7 @@ class MatchTest(unittest.TestCase):
     self.assertFalse(fm.Matches([''], 0))
     self.assertFalse(fm.Matches([' '], 0))
 
+    os.chdir('third_party/py/squires')
     fm = option_lib.PathMatch(None, option_lib.Option('foo'),
                               only_existing=True,
                               default_path='./testdata/')

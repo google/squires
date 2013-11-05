@@ -147,34 +147,6 @@ class CommandsTest(unittest.TestCase):
     cmd.command_line = ['1.1.1.1', '2.2.2.2', 'user']
     self.failUnlessEqual(cmd.GetOption('<filename>'), None)
 
-  def testSimilarlyNamedKeyvalueOptions(self):
-    cmd = self.cmd['show']['interface']
-    cmd.AddOption('device_remote', keyvalue=True, match='\S+')
-    cmd.AddOption('device', keyvalue=True, match='\S+')
-    cmd.AddOption('device_all', keyvalue=True, match='\S+')
-    cmd.command_line = ['device', 'one']
-    self.assertIsNone(cmd.GetOption('device_remote'))
-    self.assertIsNone(cmd.GetOption('device_all'))
-    self.failUnlessEqual('one', cmd.GetOption('device'))
-    cmd.command_line = ['device_all', 'two']
-    self.assertIsNone(cmd.GetOption('device'))
-    self.assertIsNone(cmd.GetOption('device_remote'))
-    self.failUnlessEqual('two', cmd.GetOption('device_all'))
-
-  def testSimilarlyNamedOptions(self):
-    cmd = self.cmd['show']['interface']
-    cmd.AddOption('device_remote')
-    cmd.AddOption('device')
-    cmd.AddOption('device_all')
-    cmd.command_line = ['device']
-    self.failUnless(cmd.GetOption('device'))
-    self.assertIsNone(cmd.GetOption('device_remote'))
-    self.assertIsNone(cmd.GetOption('device_all'))
-    cmd.command_line = ['device_all']
-    self.assertIsNone(cmd.GetOption('device'))
-    self.assertIsNone(cmd.GetOption('device_remote'))
-    self.failUnless(cmd.GetOption('device_all'))
-
   def testGetGroupOption(self):
     """Test group options."""
     cmd = self.cmd['show']['interface']
@@ -311,7 +283,7 @@ class CommandsTest(unittest.TestCase):
     cmd = self.cmd['show']['interface']
     cmd.AddOption('software')
     cmd.AddOption('description', keyvalue=True,
-                      match='.+', multiword=True)
+                  match='.+', multiword=True)
     cmd.AddOption('name', match='[xg]e-.*')
 
     cmd.command_line = ['software']
@@ -491,7 +463,7 @@ class CommandsTest(unittest.TestCase):
                          squires.COMPLETE_SUFFIX)
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('vers', 0), 'version' +
+    self.failUnlessEqual(self.cmd.ReadlineCompleter('"vers', 0), 'version' +
                          squires.COMPLETE_SUFFIX)
 
     self.fake_buffer = 'show version '
@@ -665,7 +637,6 @@ class CommandsTest(unittest.TestCase):
          'test': 'test help',
          'text': 'text help'})
 
-
   def testReadlineFuncs(self):
     root = squires.Command('<root>')
     root.AddCommand('one', help='ONE', method=squires)
@@ -777,6 +748,31 @@ class CommandsTest(unittest.TestCase):
         ['two', 'four', squires.PIPE_CHAR, 'grep']))
     self.assertFalse(root['two']['four'].WillPipe(
         ['two', 'four', 'grep']))
+
+  def testSplitCommandLine(self):
+    expected_tokens = ['command', 'subcommand', 'parameter', '|', 'pipe']
+
+    command = 'command subcommand parameter | pipe'
+    tokens = self.cmd._SplitCommandLine(command)
+    self.assertEqual(tokens, expected_tokens)
+
+    command = 'command subcommand parameter| pipe'
+    tokens = self.cmd._SplitCommandLine(command)
+    self.assertEqual(tokens, expected_tokens)
+
+    command = 'command subcommand parameter |pipe'
+    tokens = self.cmd._SplitCommandLine(command)
+    self.assertEqual(tokens, expected_tokens)
+
+    command = 'command subcommand parameter|pipe'
+    tokens = self.cmd._SplitCommandLine(command)
+    self.assertEqual(tokens, expected_tokens)
+
+    command = 'command subcommand "parameter| parameter"|pipe \\" \\\\'
+    tokens = self.cmd._SplitCommandLine(command)
+    expected_tokens = ['command', 'subcommand', 'parameter| parameter', '|',
+                       'pipe', '"', '\\']
+    self.assertEqual(tokens, expected_tokens)
 
 
 class ShellCommandTest(unittest.TestCase):

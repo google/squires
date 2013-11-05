@@ -1,24 +1,12 @@
-#!/usr/bin/python
-#
-# Copyright 2010 Google Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-# implied. See the License for the specific language governing
-# permissions and limitations under the License.
+# Copyright 2011 Google Inc. All Rights Reserved.
+
 """Pipe support code for Squires.
 
 This module contains code for building and handling of
 pipes, ie 'command | modifier'.
 """
-#TODO: Support chaining pipes.
+#TODO(bbuxton): Support chaining pipes.
+__author__ = 'bbuxton@google.com (Ben Buxton)'
 
 import re
 import subprocess
@@ -62,7 +50,7 @@ class Pipe(object):
     option.
 
     Args:
-      cmd: A Command(), the command for this object.
+      cmd: A Command object, the command being run,
 
     Returns:
       A boolean. If True, the state was set sucessfully.
@@ -104,7 +92,7 @@ class Pipe(object):
     return True
 
   def End(self):
-    """Called as the pipe is torn down.
+    """Called as the pipe is set up.
 
     Returns:
       A boolean. If not False, setup was successful.
@@ -113,7 +101,7 @@ class Pipe(object):
 
 
 class GrepPipe(Pipe):
-  """Prints lines that match."""
+  """A grep pipe, prints lines that match."""
 
   def Begin(self):
     self.regex = re.compile(self.cmd.GetOption('string'), re.I)
@@ -132,7 +120,7 @@ class GrepPipe(Pipe):
 
 
 class ExceptPipe(GrepPipe):
-  """Prints lines that do not match."""
+  """An except pipe, prints lines that do not match."""
 
   def write(self, string):
     self.linebuffer.append(string)
@@ -143,7 +131,7 @@ class ExceptPipe(GrepPipe):
 
 
 class CountPipe(Pipe):
-  """Prints number of lines output."""
+  """Count pipe, prints number of lines output."""
 
   def Begin(self):
     self.linecount = 0
