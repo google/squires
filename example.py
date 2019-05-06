@@ -173,6 +173,7 @@ def main(unused_argv):
 
   cmd_tree.name = '<root>'
   cmd_tree.prompt = 'adventure> '
+  cmd_tree.histfile = '/tmp/squires-history'
 
   adventure = Adventure()
 

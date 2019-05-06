@@ -99,6 +99,7 @@ class Command(dict):
     command_line: A list of tokens in the current command line.
     prompt: A string, the command prompt to display. Only valid for the top
       level command.
+    histfile: A str, the filename to read/write history from.
     method: A method, called from within Run(), unless Run() is overridden.
     execute_command_string: A string, to display as '<cr>' help, if runnable.
     orig_ancestors: A list of strings, ancestors of this command.
@@ -123,6 +124,7 @@ class Command(dict):
     self.method = method
     self.pipetree = None
     self.meta = None
+    self.histfile = None
     self._completion_cache = (None, None)
 
     if runnable is None:
@@ -231,6 +233,21 @@ class Command(dict):
       return self.parent.GetPipeTree()
     return None
 
+  def _ReadHistory(self):
+    """Reads history file, if it exists."""
+    if self.histfile:
+      histfile = os.path.expanduser(self.histfile)
+      if os.path.exists(histfile):
+        readline.read_history_file(histfile)
+
+  def _WriteHistory(self):
+    """Writes history file, creating if it doesnt exist."""
+    if self.histfile:
+      histfile = os.path.expanduser(self.histfile)
+      if not os.path.exists(histfile):
+        open(histfile, 'w')
+      readline.write_history_file(histfile)
+
   @property
   def path(self):
     """Fetches the path of this command.
@@ -284,6 +301,7 @@ class Command(dict):
     Args:
       prompt: A string, the prompt to display.
     """
+    self._ReadHistory()
     while True:
       try:
         self.Prompt(prompt)
@@ -292,6 +310,7 @@ class Command(dict):
       except EOFError:
         print()
         break
+    self._WriteHistory()
 
   def _SplitCommandLine(self, command):
     """Split a command string into tokens.
