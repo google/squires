@@ -14,7 +14,7 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-import cStringIO
+import io
 import os
 import sys
 import tempfile
@@ -82,23 +82,23 @@ class CommandsTest(unittest.TestCase):
 
   def testAttach(self):
     """Verify that commands get attached in the right place."""
-    self.failUnlessEqual(self.cmd['show'].name, 'show')
+    self.assertEqual(self.cmd['show'].name, 'show')
 
-    self.failUnlessEqual(self.cmd['show']['interface'].name, 'interface')
+    self.assertEqual(self.cmd['show']['interface'].name, 'interface')
 
-    self.failUnlessEqual(self.cmd['show']['interface']['terse'].name, 'terse')
+    self.assertEqual(self.cmd['show']['interface']['terse'].name, 'terse')
 
-    self.failUnlessEqual(self.cmd['show'].root, self.cmd)
-    self.failUnlessEqual(self.cmd['show']['interface'].root, self.cmd)
-    self.failUnlessEqual(self.cmd['show']['interface']['terse'].root, self.cmd)
+    self.assertEqual(self.cmd['show'].root, self.cmd)
+    self.assertEqual(self.cmd['show']['interface'].root, self.cmd)
+    self.assertEqual(self.cmd['show']['interface']['terse'].root, self.cmd)
 
-    self.failUnlessEqual(['show', 'interface', 'terse'],
+    self.assertEqual(['show', 'interface', 'terse'],
                          self.cmd['show']['interface']['terse'].path)
 
     # Verify that _AddAncestors() has worked.
-    self.failUnlessEqual('write', self.cmd['write'].name)
-    self.failUnlessEqual('file', self.cmd['write']['file'].name)
-    self.failUnlessEqual('logs', self.cmd['write']['file']['logs'].name)
+    self.assertEqual('write', self.cmd['write'].name)
+    self.assertEqual('file', self.cmd['write']['file'].name)
+    self.assertEqual('logs', self.cmd['write']['file']['logs'].name)
 
     command = squires.Command()
     command.name = 'write'
@@ -107,9 +107,9 @@ class CommandsTest(unittest.TestCase):
     self.cmd.Attach(command)
 
     # Merge a new Command() over an existing.
-    self.failUnlessEqual('write', self.cmd['write'].name)
-    self.failUnlessEqual('file', self.cmd['write']['file'].name)
-    self.failUnlessEqual('logs', self.cmd['write']['file']['logs'].name)
+    self.assertEqual('write', self.cmd['write'].name)
+    self.assertEqual('file', self.cmd['write']['file'].name)
+    self.assertEqual('logs', self.cmd['write']['file']['logs'].name)
 
     command = squires.Command()
     command.name = 'file'
@@ -118,13 +118,13 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('now', helptext='Write it now')
     self.cmd.Attach(command)
 
-    self.failUnlessEqual('now', command.options.GetOptionObject('now').name)
-    self.failUnlessEqual(None, command.options.GetOptionObject('unknown'))
+    self.assertEqual('now', command.options.GetOptionObject('now').name)
+    self.assertEqual(None, command.options.GetOptionObject('unknown'))
 
-    self.failUnlessEqual('write', self.cmd['write'].name)
-    self.failUnlessEqual('file', self.cmd['write']['file'].name)
-    self.failUnlessEqual('Write file', self.cmd['write']['file'].help)
-    self.failUnlessEqual('logs', self.cmd['write']['file']['logs'].name)
+    self.assertEqual('write', self.cmd['write'].name)
+    self.assertEqual('file', self.cmd['write']['file'].name)
+    self.assertEqual('Write file', self.cmd['write']['file'].help)
+    self.assertEqual('logs', self.cmd['write']['file']['logs'].name)
     self.assertEqual(1, len(self.cmd['write']['file'].options))
 
   def testPositionalOption(self):
@@ -139,13 +139,13 @@ class CommandsTest(unittest.TestCase):
                   position=3)
 
     cmd.command_line = ['1.1.1.1', '2.2.2.2', 'user', 'somefile']
-    self.failUnlessEqual(cmd.GetOption('<primaryip>'), '1.1.1.1')
-    self.failUnlessEqual(cmd.GetOption('<secondaryip>'), '2.2.2.2')
-    self.failUnlessEqual(cmd.GetOption('<username>'), 'user')
-    self.failUnlessEqual(cmd.GetOption('<filename>'), 'somefile')
+    self.assertEqual(cmd.GetOption('<primaryip>'), '1.1.1.1')
+    self.assertEqual(cmd.GetOption('<secondaryip>'), '2.2.2.2')
+    self.assertEqual(cmd.GetOption('<username>'), 'user')
+    self.assertEqual(cmd.GetOption('<filename>'), 'somefile')
 
     cmd.command_line = ['1.1.1.1', '2.2.2.2', 'user']
-    self.failUnlessEqual(cmd.GetOption('<filename>'), None)
+    self.assertEqual(cmd.GetOption('<filename>'), None)
 
   def testGetGroupOption(self):
     """Test group options."""
@@ -158,71 +158,71 @@ class CommandsTest(unittest.TestCase):
 
     # Empty commandline should match no groups.
     cmd.command_line = []
-    self.failIf(cmd.GetGroupOption('verbosity'))
-    self.failIf(cmd.GetGroupOption('hardware'))
-    self.failIf(cmd.GetGroupOption('interface'))
+    self.assertFalse(cmd.GetGroupOption('verbosity'))
+    self.assertFalse(cmd.GetGroupOption('hardware'))
+    self.assertFalse(cmd.GetGroupOption('interface'))
     # Match a member of a group
     cmd.command_line = ['terse']
-    self.failUnlessEqual(cmd.GetGroupOption('verbosity'), 'terse')
-    self.failIf(cmd.GetGroupOption('interface'))
+    self.assertEqual(cmd.GetGroupOption('verbosity'), 'terse')
+    self.assertFalse(cmd.GetGroupOption('interface'))
     # Same, but with an additional parameter.
     cmd.command_line = ['terse', 'all']
-    self.failUnlessEqual(cmd.GetGroupOption('verbosity'), 'terse')
-    self.failUnlessEqual(cmd.GetGroupOption('interface'), 'all')
+    self.assertEqual(cmd.GetGroupOption('verbosity'), 'terse')
+    self.assertEqual(cmd.GetGroupOption('interface'), 'all')
     # Match a regex based group option
     cmd.command_line = ['terse', 'ge-1/3/0']
-    self.failUnlessEqual(cmd.GetGroupOption('interface'), 'ge-1/3/0')
+    self.assertEqual(cmd.GetGroupOption('interface'), 'ge-1/3/0')
     cmd.command_line = ['ge-2/3/0']
-    self.failUnlessEqual(cmd.GetGroupOption('interface'), 'ge-2/3/0')
+    self.assertEqual(cmd.GetGroupOption('interface'), 'ge-2/3/0')
 
   def testWithMethod(self):
     def MyMethod(*args):
       """test docstring."""
     cmd = squires.Command(name='foo', method=MyMethod)
-    self.failUnlessEqual('test docstring.',
+    self.assertEqual('test docstring.',
                          cmd.help)
 
   def testDisambiguate(self):
     """Test we can disambiguate commands."""
     # Make sure we can get common prefixes.
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd._GetCommonPrefix(['internal', 'inter']),
         'inter')
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd._GetCommonPrefix(['intra', 'inter', 'interface']),
         'int')
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd._GetCommonPrefix(['tense', 'terse', 'tyre']),
         't')
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd._GetCommonPrefix(['tense', 'style', 'place']),
         '')
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd._GetCommonPrefix(['2-A-4-T1-1', '2-A-4-T1-2']),
         '2-A-4-T1-')
 
     # Disambiguate single command
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sho']),
         ['show'])
 
     # Disambiguate sub command
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sho', 'inter']),
         ['show', 'interface'])
 
     # Multiple disambiguate down the tree, last one
     # is ambiguous.
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'te']),
         ['show', 'interface', 'te'])
     # Similar, last one is not ambiguous
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'ter']),
         ['show', 'interface', 'terse'])
 
     # Disambiguate when there is an exact match
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'xe1'],
                               prefer_exact_match=True),
         ['show', 'interface', 'xe1'])
@@ -240,42 +240,42 @@ class CommandsTest(unittest.TestCase):
                                             keyvalue=True, match='\d+',
                                             helptext='detail help')
 
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'ter']),
         ['show', 'interface', 'terse'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 't']),
         ['show', 'interface', 'te'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge1'],
                               prefer_exact_match=True),
         ['show', 'interface', 'intf', 'ge1'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'd', 'tex']),
         ['show', 'interface', 'detail', 'text'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'd', 'te']),
         ['show', 'interface', 'detail', 'te'])
 
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'le', '2']),
         ['show', 'interface', 'level', '2'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'le', '2', 'te']),
         ['show', 'interface', 'level', '2', 'te'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'tes', 'le', '2']),
         ['show', 'interface', 'test', 'level', '2'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'tes', 'le']),
         ['show', 'interface', 'test', 'level'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge1']),
         ['show', 'interface', 'intf', 'ge1'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'intf', 'ge']),
         ['show', 'interface', 'intf', 'ge'])
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Disambiguate(['sh', 'inter', 'ters', 'ters']),
         ['show', 'interface', 'terse', 'ters'])
 
@@ -287,15 +287,15 @@ class CommandsTest(unittest.TestCase):
     cmd.AddOption('name', match='[xg]e-.*')
 
     cmd.command_line = ['software']
-    self.failUnlessEqual(None, cmd.GetOption('description'))
-    self.failUnlessEqual(None, cmd.GetOption('name'))
-    self.failUnless(cmd.GetOption('software'))
+    self.assertEqual(None, cmd.GetOption('description'))
+    self.assertEqual(None, cmd.GetOption('name'))
+    self.assertTrue(cmd.GetOption('software'))
     cmd.command_line = ['software', 'description', 'A', 'fast', 'interface']
-    self.failUnless(cmd.GetOption('software'))
-    self.failUnlessEqual('A fast interface', cmd.GetOption('description'))
+    self.assertTrue(cmd.GetOption('software'))
+    self.assertEqual('A fast interface', cmd.GetOption('description'))
     cmd.command_line = ['xe-0/0/0', 'description', 'A', 'fast', 'interface']
-    self.failUnlessEqual('xe-0/0/0', cmd.GetOption('name'))
-    self.failUnlessEqual('A fast interface', cmd.GetOption('description'))
+    self.assertEqual('xe-0/0/0', cmd.GetOption('name'))
+    self.assertEqual('A fast interface', cmd.GetOption('description'))
 
   def testRequired(self):
     """Test required options."""
@@ -311,40 +311,40 @@ class CommandsTest(unittest.TestCase):
     command.AddOption('blah', boolean=False, match='\S+')
     command.AddOption('frub', boolean=False, keyvalue=True, match='\S+')
 
-    self.failIf(command.options.HasAllValidOptions([]))
-    self.failIf(command.options.HasAllValidOptions(['detailed']))
-    self.failIf(command.options.HasAllValidOptions(['detailed', 'terse']))
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertFalse(command.options.HasAllValidOptions([]))
+    self.assertFalse(command.options.HasAllValidOptions(['detailed']))
+    self.assertFalse(command.options.HasAllValidOptions(['detailed', 'terse']))
+    self.assertTrue(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all']))
 
     # make sure keyvalue pair doesnt get used for other options.
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertTrue(command.options.HasAllValidOptions(
         ['req1', 'detailed', 'with', 'all', 'frub', 'five', 'foobar']))
 
     # Missing required group
-    self.failIf(command.options.HasAllValidOptions(['req1']))
+    self.assertFalse(command.options.HasAllValidOptions(['req1']))
 
-    self.failIf(command.options.HasAllValidOptions(['software']))
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertFalse(command.options.HasAllValidOptions(['software']))
+    self.assertTrue(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software']))
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertTrue(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software', 'hardware']))
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertTrue(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'lines', '30',
          'software', 'hardware']))
-    self.failUnless(command.options.HasAllValidOptions(
+    self.assertTrue(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software',
          'hardware', 'lines', '30']))
-    self.failIf(command.options.HasAllValidOptions(
+    self.assertFalse(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'lines', 'software', 'hardware']))
-    self.failIf(command.options.HasAllValidOptions(
+    self.assertFalse(command.options.HasAllValidOptions(
         ['detailed', 'req1', 'with', 'all', 'software', 'hardware', 'lines']))
 
   def testKeyValueOption(self):
     command = self.cmd['show']['version']
 
     # keyvalue must have 'required' or 'is_path'
-    self.failUnlessRaises(
+    self.assertRaises(
         ValueError, command.AddOption, 'lines', keyvalue=True)
 
     command.AddOption('lines', keyvalue=True, match='\d+')
@@ -371,19 +371,19 @@ class CommandsTest(unittest.TestCase):
     cmd = self.cmd['show']['interface']
     cmd.AddOption('name', keyvalue=True, match='ge.*')
     cmd.command_line = ['name', 'ge-0/0/0']
-    self.failUnlessEqual('ge-0/0/0', cmd.GetOption('name'))
+    self.assertEqual('ge-0/0/0', cmd.GetOption('name'))
     cmd.command_line = ['ge-0/0/0']
     self.assertTrue(cmd.GetOption('name') is None)
 
     cmd.AddOption('style', keyvalue=True, match=['short', 'long'])
     cmd.command_line = ['style', 'lo']
-    self.failUnlessEqual({'long': ''}, cmd.Completer(cmd.command_line))
+    self.assertEqual({'long': ''}, cmd.Completer(cmd.command_line))
     cmd.command_line = ['style', 'short']
-    self.failUnlessEqual('short', cmd.GetOption('style'))
+    self.assertEqual('short', cmd.GetOption('style'))
     cmd.command_line = ['style', 's']
-    self.failUnlessEqual('short', cmd.GetOption('style'))
+    self.assertEqual('short', cmd.GetOption('style'))
     cmd.command_line = ['style', 'l']
-    self.failUnlessEqual('long', cmd.GetOption('style'))
+    self.assertEqual('long', cmd.GetOption('style'))
 
     cmd.AddOption('style', keyvalue=True, match={'short': 'Short style',
                                                  'long': 'Long style'},
@@ -391,44 +391,44 @@ class CommandsTest(unittest.TestCase):
     cmd.AddOption('size', keyvalue=True, match={'small': 'Small size',
                                                 'long': 'Long size'})
     cmd.command_line = ['style', 'short']
-    self.failUnlessEqual('short', cmd.GetOption('style'))
+    self.assertEqual('short', cmd.GetOption('style'))
     cmd.command_line = ['style', 's']
-    self.failUnlessEqual('short', cmd.GetOption('style'))
+    self.assertEqual('short', cmd.GetOption('style'))
     cmd.command_line = ['style', 'l']
-    self.failUnlessEqual('long', cmd.GetOption('style'))
+    self.assertEqual('long', cmd.GetOption('style'))
 
     cmd.command_line = ['style', 'l']
-    self.failUnlessEqual({'long': 'Long style [Default]'},
+    self.assertEqual({'long': 'Long style [Default]'},
                          cmd.Completer(cmd.command_line))
 
     cmd.command_line = []
-    self.failUnlessEqual('long', cmd.GetOption('style'))
+    self.assertEqual('long', cmd.GetOption('style'))
 
     cmd.command_line = ['style', 'long', 'size', 'l']
-    self.failUnlessEqual({'long': 'Long size'}, cmd.Completer(cmd.command_line))
+    self.assertEqual({'long': 'Long size'}, cmd.Completer(cmd.command_line))
     cmd.command_line = ['size', 'long', 'style', 'l']
-    self.failUnlessEqual({'long': 'Long style [Default]'},
+    self.assertEqual({'long': 'Long style [Default]'},
                          cmd.Completer(cmd.command_line))
 
     cmd.AddOption('count', keyvalue=True, match=lambda x: {'one': '1', 'two':
                                                            '2'})
     cmd.command_line = ['count', 'o']
-    self.failUnlessEqual({'one': '1'}, cmd.Completer(cmd.command_line))
+    self.assertEqual({'one': '1'}, cmd.Completer(cmd.command_line))
 
     cmd.AddOption('colour', keyvalue=True, hidden=True, match=('red', 'blue'))
     cmd.command_line = ['col']
-    self.failUnlessEqual({}, cmd.Completer(cmd.command_line))
+    self.assertEqual({}, cmd.Completer(cmd.command_line))
     cmd.command_line = ['colour', 'red']
-    self.failUnlessEqual('red', cmd.GetOption('colour'))
+    self.assertEqual('red', cmd.GetOption('colour'))
 
     cmd.command_line = ['co']
-    self.failUnlessEqual({'count': None}, cmd.Completer(cmd.command_line))
+    self.assertEqual({'count': None}, cmd.Completer(cmd.command_line))
 
   def FakeReadlineGetBuffer(self):
     return self.fake_buffer
 
   def testReadlineHistorySaving(self):
-    for _ in xrange(squires.readline.get_current_history_length()):
+    for _ in range(squires.readline.get_current_history_length()):
       squires.readline.remove_history_item(0)
 
     cmd = squires.Command()
@@ -456,73 +456,73 @@ class CommandsTest(unittest.TestCase):
     squires.readline.get_line_buffer = self.FakeReadlineGetBuffer
 
     self.fake_buffer = 'sh'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('sh', 0), 'show' +
+    self.assertEqual(self.cmd.ReadlineCompleter('sh', 0), 'show' +
                          squires.COMPLETE_SUFFIX)
     self.fake_buffer = 'show vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('vers', 0), 'version' +
+    self.assertEqual(self.cmd.ReadlineCompleter('vers', 0), 'version' +
                          squires.COMPLETE_SUFFIX)
     # Unterminated quote should still complete
     self.fake_buffer = 'show "vers'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('"vers', 0), 'version' +
+    self.assertEqual(self.cmd.ReadlineCompleter('"vers', 0), 'version' +
                          squires.COMPLETE_SUFFIX)
 
     self.fake_buffer = 'show version '
-    self.failUnlessEqual(self.cmd.ReadlineCompleter(' ', 0), None)
+    self.assertEqual(self.cmd.ReadlineCompleter(' ', 0), None)
 
     command = self.cmd['show']['version']
     command.AddOption('software')
     command.AddOption('hardware')
     self.fake_buffer = 'show version s'
-    self.failUnlessEqual(self.cmd.ReadlineCompleter('s', 0), 'software' +
+    self.assertEqual(self.cmd.ReadlineCompleter('s', 0), 'software' +
                          squires.COMPLETE_SUFFIX)
     squires.readline.get_line_buffer = get_line_buffer
 
   def testComplete(self):
     """Test command completion."""
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['sh']),
         {'show': 'show help'})
 
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['sh', 've']),
         {'version': 'version help'})
 
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['show', 'interf']),
         {'interface': 'interface help'})
 
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['show', 'interf', 'xe1']),
         {'xe1': 'xe1 help', 'xe10': 'xe10 help'})
 
     self.cmd['show']['interface'].runnable = True
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['show', 'interface', ' ']),
         {'terse': 'terse help', 'teal': 'teal help',
          'xe1': 'xe1 help', 'xe10': 'xe10 help',
          '<cr>': self.cmd.execute_command_string})
 
     self.cmd['show']['interface']['terse'].runnable = True
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd.Completer(['show', 'interface', 'terse', ' ']),
         {'<cr>': self.cmd.execute_command_string})
 
     completions = self.cmd.Completer(['show', 'interf', 'te'])
-    self.failUnlessEqual(completions['terse'], 'terse help')
-    self.failUnlessEqual(completions['teal'], 'teal help')
+    self.assertEqual(completions['terse'], 'terse help')
+    self.assertEqual(completions['teal'], 'teal help')
 
     completions = self.cmd.Completer(['show', 'interf', 'tea'])
-    self.failUnlessEqual(completions['teal'], 'teal help')
+    self.assertEqual(completions['teal'], 'teal help')
 
     completions = self.cmd.Completer(['SHOW', 'INTERF', 'TE'])
-    self.failUnlessEqual(completions['terse'], 'terse help')
-    self.failUnlessEqual(completions['teal'], 'teal help')
+    self.assertEqual(completions['terse'], 'terse help')
+    self.assertEqual(completions['teal'], 'teal help')
 
     completions = self.cmd.Completer(['show', 'invi'])
-    self.failUnlessEqual({}, completions)
+    self.assertEqual({}, completions)
     self.cmd['show']['invisible'].hidden = False
     completions = self.cmd.Completer(['show', 'invi'])
-    self.failUnlessEqual({'invisible': 'invisible command'}, completions)
+    self.assertEqual({'invisible': 'invisible command'}, completions)
 
   def testOptionCompletes(self):
     # Extra option completions
@@ -544,19 +544,19 @@ class CommandsTest(unittest.TestCase):
         default=25, match='\d+')
 
     # Test two options
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['te']),
         {'text': 'text help', 'test': 'test help'})
     # Test one option
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['de']),
         {'detail': 'detail help'})
     # Test that pre-existing option is not included in completes
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['tex', 'de']),
         {'detail': 'detail help'})
     # Same, but two results
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].options.GetOptionCompletes(['de', 'te']),
         {'test': 'test help', 'text': 'text help'})
 
@@ -565,8 +565,8 @@ class CommandsTest(unittest.TestCase):
     values = ['Index of interface', 'Name of interface', 'detail help',
               'extensive help', 'lines to show', 'test help', 'text help',]
     res = self.cmd['show']['interface'].options.GetOptionCompletes([' '])
-    self.failUnlessEqual(keys, sorted(res.keys()))
-    self.failUnlessEqual(values, sorted(res.values()))
+    self.assertEqual(keys, sorted(res.keys()))
+    self.assertEqual(values, sorted(res.values()))
 
     # A group member already present, excluded other groups members
     # from completes
@@ -574,8 +574,8 @@ class CommandsTest(unittest.TestCase):
     values = ['Index of interface', 'Name of interface', 'lines to show',
               'test help', 'text help']
     res = self.cmd['show']['interface'].options.GetOptionCompletes(['de', ' '])
-    self.failUnlessEqual(keys, sorted(res.keys()))
-    self.failUnlessEqual(values, sorted(res.values()))
+    self.assertEqual(keys, sorted(res.keys()))
+    self.assertEqual(values, sorted(res.values()))
 
     # All available subcommands and options.
     keys = ['detail', 'extensive', 'index', 'lines', 'name', 'teal',
@@ -584,27 +584,27 @@ class CommandsTest(unittest.TestCase):
               'extensive help', 'lines to show', 'teal help',
               'terse help', 'test help', 'text help', 'xe1 help', 'xe10 help']
     res = self.cmd['show']['interface'].Completer([' '])
-    self.failUnlessEqual(keys, sorted(res.keys()))
-    self.failUnlessEqual(values, sorted(res.values()))
+    self.assertEqual(keys, sorted(res.keys()))
+    self.assertEqual(values, sorted(res.values()))
 
     # Some matching subcommands and options
     keys = ['teal', 'terse', 'test', 'text',]
     values = ['teal help', 'terse help', 'test help', 'text help']
     res = self.cmd['show']['interface'].Completer(['te'])
-    self.failUnlessEqual(keys, sorted(res.keys()))
-    self.failUnlessEqual(values, sorted(res.values()))
+    self.assertEqual(keys, sorted(res.keys()))
+    self.assertEqual(values, sorted(res.values()))
 
     # One matching subcommand
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['ter']),
         {'terse': 'terse help'})
     # One matching option, with existing option
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['tex', 'de']),
         {'detail': 'detail help'})
     # One matching option, with existing option, attempt to
     # add existing group member.
-    self.failIf(
+    self.assertFalse(
         self.cmd['show']['interface'].Completer(['tex', 'de', 'ex']))
 
     # Only non-included options are returned
@@ -612,24 +612,24 @@ class CommandsTest(unittest.TestCase):
     values = ['Index of interface', 'Name of interface', 'detail help',
               'extensive help', 'lines to show', 'test help']
     res = self.cmd['show']['interface'].Completer(['tex', ' '])
-    self.failUnlessEqual(keys, sorted(res.keys()))
-    self.failUnlessEqual(values, sorted(res.values()))
+    self.assertEqual(keys, sorted(res.keys()))
+    self.assertEqual(values, sorted(res.values()))
 
     # KeyValue options
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['lin']),
         {'lines': 'lines to show'})
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['lin', ' ']),
         {'<lines>': 'lines to show [Default: 25]'})
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['tex', 'lin', ' ']),
         {'<lines>': 'lines to show [Default: 25]'})
     # One with a group.
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['index', ' ']),
         {'<index>': 'Index of interface'})
-    self.failUnlessEqual(
+    self.assertEqual(
         self.cmd['show']['interface'].Completer(['index', '123', ' ']),
         {'detail': 'detail help',
          'extensive': 'extensive help',
@@ -664,7 +664,7 @@ class CommandsTest(unittest.TestCase):
                      root.FindCurrentCandidates())
 
     # Test completion formatter
-    buf = cStringIO.StringIO()
+    buf = io.StringIO()
     sys.stdout = buf
     root.FormatCompleterOptions('t', ['two', 'three'], 1)
     sys.stdout = sys.__stdout__
@@ -788,9 +788,9 @@ class ShellCommandTest(unittest.TestCase):
     testtext = 'This is a test'
     tmpfile = tempfile.mkstemp()[1]
     cmd._StartPipe("cat > %s" % tmpfile)
-    print testtext
+    print(testtext)
     cmd._StopPipe()
-    print 'Test data.'  # Should not be in shell pipeline.
+    print('Test data.')  # Should not be in shell pipeline.
     return
     try:
       self.assertEqual(testtext, open(tmpfile).read())

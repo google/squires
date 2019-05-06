@@ -63,7 +63,7 @@ class PipeTest(unittest.TestCase):
     self.assertTrue(tpipe.begin)
 
     # Stdout should redirect to the pipe
-    print 'Hello, world'
+    print('Hello, world')
     self.assertEqual('Hello, world\n', tpipe.string)
 
     # Verify pipe stope correctly.
@@ -73,7 +73,7 @@ class PipeTest(unittest.TestCase):
     self.assertTrue(tpipe.end)
 
     # Stdout should not redirect any more.
-    print 'Pipe stdout test'
+    print('Pipe stdout test')
     self.assertEqual('Hello, world\n', tpipe.string)
 
   def testPipes(self):
@@ -100,7 +100,7 @@ class PipeTest(unittest.TestCase):
 
     greppipe = pipe.GrepPipe()
     greppipe.State(cmd, None)
-    self.failIfEqual(None, greppipe.regex)
+    self.assertNotEqual(None, greppipe.regex)
     greppipe.write('This should not match\n')
     self.assertEqual('', tp.string)
     greppipe.write('22 should match\n')
@@ -119,7 +119,7 @@ class PipeTest(unittest.TestCase):
 
     exceptpipe = pipe.ExceptPipe()
     exceptpipe.State(cmd, None)
-    self.failIfEqual(None, exceptpipe.regex)
+    self.assertNotEqual(None, exceptpipe.regex)
     exceptpipe.write('11 This should not match\n')
     self.assertEqual('', tp.string)
     exceptpipe.write('This should match\n')
@@ -159,7 +159,7 @@ class PipeTest(unittest.TestCase):
     if os.path.exists('/tmp/squires_test.log'):
       os.remove('/tmp/squires_test.log')
     shpipe.State(cmd, None)
-    shpipe.write('One line\n')
+    shpipe.write('One line\n'.encode())
     cmd.SetExpected('start', False)
     cmd.SetExpected('stop', True)
     shpipe.State(cmd, None)

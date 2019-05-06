@@ -38,7 +38,7 @@ class Adventure(object):
     }
 
   def GetInventory(self, *args):
-    return self.inventory.keys()
+    return list(self.inventory.keys())
 
   def SlowPrint(self, line):
     """Prints the supplied line slowly (Ancient modem style).
@@ -110,10 +110,10 @@ class Adventure(object):
     if command.GetOption('error'):
       raise Exception('boo!')
 
-    print 'Colour is: %s' % colour
-    print 'File is: %s' % filename
-    print 'Pager is: %s' % pager
-    print 'Strength is: %s' % strength
+    print('Colour is: %s' % colour)
+    print('File is: %s' % filename)
+    print('Pager is: %s' % pager)
+    print('Strength is: %s' % strength)
 
   def Look(self, command, unused_command):
     direction = command.GetOption('direction')
@@ -130,7 +130,7 @@ class Adventure(object):
 
   def Walk(self, command, _):
     direction = command.GetOption('direction')
-    print 'Walking %s' % direction
+    print('Walking %s' % direction)
     if not random.randint(0, 7):
       self.SlowPrint('You are eaten by a grue.')
       time.sleep(1)
@@ -142,7 +142,7 @@ class Adventure(object):
 
   def Inventory(self, command, unused_command):
     self.SlowPrint('Current inventory items:')
-    for item, count in self.inventory.iteritems():
+    for item, count in self.inventory.items():
       self.SlowPrint('%d# %s(s)' % (count, item))
 
   def Say(self, command, unused_command):
@@ -154,7 +154,7 @@ class Adventure(object):
     self.SlowPrint('You shout, "%s".' % command.GetOption('repeat'))
 
   def Nb(self, command, _):
-    print command.GetOption('qtype'), command.GetOption('query')
+    print(command.GetOption('qtype'), command.GetOption('query'))
 
 
 

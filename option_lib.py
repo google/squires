@@ -20,6 +20,7 @@ import collections
 import inspect
 import os
 import re
+from functools import total_ordering
 
 
 # Represents a match for an option.
@@ -34,6 +35,7 @@ import re
 Match = collections.namedtuple('Match', 'value count reason valid')
 
 
+@total_ordering
 class Option(object):
   """An option to a command.
 
@@ -195,6 +197,9 @@ class Option(object):
     is lexographically later.
     """
     return cmp(self.matcher.MATCH, other.matcher.MATCH)
+
+  def __lt__(self, other):
+    return self.matcher.MATCH < other.matcher.MATCH
 
 
 class BaseMatch(object):
@@ -467,7 +472,7 @@ class DictMatch(ListMatch):
   def GetValidMatches(self, command, index):
     """Returns the valid matches for the given token."""
     matches = {}
-    for item, helptext in self.match.iteritems():
+    for item, helptext in self.match.items():
       if index is None or command[index] == ' ':
         matches[item] = helptext
         if self.option.default == item:

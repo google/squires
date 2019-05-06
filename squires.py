@@ -38,6 +38,8 @@ executed.
 Please see squires_test.py or example.py for simple usage.
 """
 
+from __future__ import print_function
+
 __version__ = '0.9.9'
 
 import inspect
@@ -54,7 +56,6 @@ import option_lib
 import pipe
 import readline
 COMPLETE_SUFFIX = ''
-
 
 SHOW_HIDDEN = False  # Force display of hidden commands and options.
 
@@ -151,7 +152,7 @@ class Command(dict):
     for option in self.options:
       opts.append(str(option))
     subs = []
-    for command in self.values():
+    for command in list(self.values()):
       subs.append(str(command))
     spaces = '   '*len(self.path)
     return "COMMAND(%s):\n%s\n%s" % (
@@ -161,7 +162,7 @@ class Command(dict):
 
   def PrepareReadline(self):
     """Prepares readline for our use. DEPRECATED."""
-    print '(Squires warning) PrepareReadline() is deprecated and now a NoOp.'
+    print('(Squires warning) PrepareReadline() is deprecated and now a NoOp.')
 
   def AddCommand(self, name, help=None, runnable=None, method=None, pipe=None,
                  meta=None, hidden=False):
@@ -212,7 +213,7 @@ class Command(dict):
 
   def __repr__(self):
     return '<Command Object, Name "%s", SubCommands: %s>' % (
-        self.name, ','.join(self.keys()))
+        self.name, ','.join(list(self.keys())))
 
   def GetPipeTree(self):
     """Get the best pipe tree, climbing the command tree.
@@ -287,9 +288,9 @@ class Command(dict):
       try:
         self.Prompt(prompt)
       except KeyboardInterrupt:
-        print
+        print()
       except EOFError:
-        print
+        print()
         break
 
   def _SplitCommandLine(self, command):
@@ -321,25 +322,28 @@ class Command(dict):
       self.prompt = prompt
 
     self._ReadlinePrepare()
-    line = raw_input(self.prompt)
+    if sys.version_info.major < 3:
+      line = raw_input(self.prompt)
+    else:
+      line = input(self.prompt)
     self._ReadlineUnprepare()
 
     try:
       split_line = self._SplitCommandLine(line)
-    except ValueError, e:
-      print '%% %s' % e  # Unterminated quote or other parse error.
+    except ValueError as e:
+      print('%% %s' % e)  # Unterminated quote or other parse error.
       return
 
     try:
       self._SaveHistory()
       self.Execute(split_line)
-    except (KeyboardInterrupt, EOFError), e:
+    except (KeyboardInterrupt, EOFError) as e:
       # Catch ctrl-c and eof and pass up.
       raise
-    except IOError, e:
+    except IOError as e:
       # Would only be seen by a pipe. Suppress useless error.
       pass
-    except Exception, e:
+    except Exception as e:
       # Other exceptions whilst running command have trace
       # printed, then back to the prompt.
       traceback.print_exc(file=sys.stdout)
@@ -369,8 +373,9 @@ class Command(dict):
 
     initial_candidates = self.FindCurrentCandidates()
     if not initial_candidates:
-      print '\nNo valid completions.'
-      print self.prompt + readline.get_line_buffer(),
+      print('\nNo valid completions.')
+      print(self.prompt + readline.get_line_buffer(), end='')
+      sys.stdout.flush()
       return None
     candidates = []
     for cand in sorted(initial_candidates):
@@ -397,13 +402,14 @@ class Command(dict):
         ReadlineCompleter.
       unused_longest: An int, the length of the longest match.
     """
-    print '\nValid completions:'
+    print(u'\nValid completions:')
     candidates = self.FindCurrentCandidates()
     for candidate in sorted(candidates):
       if not candidate.startswith('%@%@%@'):
         # Print it unless its a dummy candidate (see above).
-        print ' %-21s %s' % (candidate, candidates[candidate] or '')
-    print self.prompt + readline.get_line_buffer(),
+        print(u' %-21s %s' % (candidate, candidates[candidate] or ''))
+    print(u'%s%s' % (self.prompt, readline.get_line_buffer()), end=u'')
+    sys.stdout.flush()
 
   def FindCurrentCandidates(self):
     """Finds valid completions on the current line.
@@ -417,7 +423,7 @@ class Command(dict):
         try:
           current_line = shlex.split(readline.get_line_buffer() + quote)
           break
-        except ValueError, e:
+        except ValueError as e:
           pass
       else:
         raise  # Re-raise exception that our extra quotes couldnt stop.
@@ -425,7 +431,7 @@ class Command(dict):
         current_line.append(' ')
       return self.Completer(current_line)
     except Exception:
-      print '\n%s' % traceback.format_exc()
+      print('\n%s' % traceback.format_exc())
       return {}
 
   def Completer(self, current_line):
@@ -470,7 +476,7 @@ class Command(dict):
     candidates = {}
 
     # Examine subcommands for completions.
-    for name, subcommand in self.iteritems():
+    for name, subcommand in self.items():
       if subcommand._Matches(line):
         if len(line) > 1:
           # A line with more elements here is passed to the first match.
@@ -523,7 +529,7 @@ class Command(dict):
       A string, the longest match prefix.
     """
     common = ''
-    for i in xrange(len(words[0]) + 1):
+    for i in range(len(words[0]) + 1):
       prefix = words[0][:i]
       for w in words:
         if not w.startswith(prefix):
@@ -735,7 +741,8 @@ class Command(dict):
     cmd = self.GetCommand(command)
     if cmd.options.HasAllValidOptions(cmd.command_line, describe=True):
       if not suppress_backspace:
-        print '\r',  # Backspace due to a readline quirk adding spurious space.
+        print('\r', end='')  # Backspace due to a readline quirk adding spurious space.
+        sys.stdout.flush()
       if cmd.WillPipe(cmd.command_line):
         retval = None
         first, last = pipe.SplitByPipe(cmd.command_line)
@@ -755,19 +762,19 @@ class Command(dict):
     """Run the given command."""
     if self.method is not None:
       return self.method(self, command)
-    print '%% Incomplete command.'
+    print('%% Incomplete command.')
 
   def _SaveHistory(self):
     """Save readline history then clear history."""
     self._saved_history = []
-    for idx in xrange(1, readline.get_current_history_length()+1):
+    for idx in range(1, readline.get_current_history_length()+1):
       self._saved_history.append(readline.get_history_item(idx))
-    for idx in xrange(readline.get_current_history_length()):
+    for idx in range(readline.get_current_history_length()):
       readline.remove_history_item(0)
 
   def _RestoreHistory(self):
     """Restore readline history saved in SaveHistory."""
-    for idx in xrange(readline.get_current_history_length()):
+    for idx in range(readline.get_current_history_length()):
       readline.remove_history_item(0)
     for item in self._saved_history:
       readline.add_history(item)
@@ -790,7 +797,7 @@ class ShellCommand(Command):
         cmd.append(token)
     pipe = ' '.join(cmd)
     if len(cmd) < 1:
-      print '% Invalid pipe command.'
+      print('% Invalid pipe command.')
       return False
 
     if action == 'start':  # Initialise shell pipe.
@@ -798,7 +805,7 @@ class ShellCommand(Command):
     elif action == 'stop':  # Terminate shell pipe.
       return self._StopPipe()
     else:
-      print '%% Should not get here! (%s)' % command
+      print('%% Should not get here! (%s)' % command)
       return False
 
   def _StartPipe(self, pipe):
@@ -941,7 +948,7 @@ class Options(list):
       The option value, if set (string or True), else None.
     """
     # Get options set on command line, return value if there's a match.
-    for option, value in self._FindOptions(command_line)[0].iteritems():
+    for option, value in self._FindOptions(command_line)[0].items():
       if option.name == option_name:
         return value
 
@@ -1002,7 +1009,7 @@ class Options(list):
         # are added to candidates.
         match = option.FindMatches(command, index)
         if match.count:
-          candidates.extend(match.valid.keys())
+          candidates.extend(list(match.valid.keys()))
           index += match.count-1
       if len(candidates) == 1:
         # Expanded command line is built with uniquely matching options.
@@ -1248,17 +1255,17 @@ class Options(list):
         # token is an exact match for one of the candidates.
         if len(match.valid) != 1 and token not in match.valid:
           if describe:
-            print '%% Multiple matches for "%s" argument "%s":' % (
-                option.name, token)
+            print('%% Multiple matches for "%s" argument "%s":' % (
+                option.name, token))
             for arg in match.valid:
-              print ' %s' % arg
+              print(' %s' % arg)
           return False
 
         # If a path option, check for existance if 'only_valid_paths'.
         if (option.is_path and option.only_valid_paths and not
             os.path.exists(match.value)):
           if describe:
-            print '%% File not found: %s' % match.value
+            print('%% File not found: %s' % match.value)
           return False
 
         # Check key/value options have value part present.
@@ -1266,26 +1273,26 @@ class Options(list):
           if idx == len(command) - 1:
             # EOF before the value part.
             if describe:
-              print '%% Argument for option "%s" missing.' % option.name
+              print('%% Argument for option "%s" missing.' % option.name)
             return False
           vmatch = option.arg_val.FindMatches(command, idx+1)
           if not vmatch.count:
             # Arg does not match.
             if describe:
-              print '%% Invalid argument for option "%s".' % option.name,
+              print('%% Invalid argument for option "%s".' % option.name, end='')
             if vmatch.reason:
-              print vmatch.reason
+              print(u'%s' % vmatch.reason)
             else:
-              print
+              print()
             return False
           idx += vmatch.count
           tok = command[idx]
           if len(vmatch.valid) != 1 and tok not in vmatch.valid:
             if describe:
-              print '%% Multiple matches for "%s" argument "%s":' % (
-                  option.name, tok)
+              print('%% Multiple matches for "%s" argument "%s":' % (
+                  option.name, tok))
               for arg in vmatch.valid:
-                print ' %s' % arg
+                print(' %s' % arg)
             return False
           found_options.append(option.arg_val.name)
           if option.arg_val.name in missing_options:
@@ -1314,11 +1321,11 @@ class Options(list):
       if describe:
         # Only print out the first error to avoid confusing the user.
         if unknown_tokens:
-          print '%% Unknown/duplicate token(s): %s' % ', '.join(unknown_tokens)
+          print('%% Unknown/duplicate token(s): %s' % ', '.join(unknown_tokens))
         elif missing_groups:
-          print '%% Missing group(s): %s' % ', '.join(missing_groups)
+          print('%% Missing group(s): %s' % ', '.join(missing_groups))
         elif missing_options:
-          print '%% Missing options(s): %s' % ', '.join(missing_options)
+          print('%% Missing options(s): %s' % ', '.join(missing_options))
       return False
 
     return True
@@ -1390,7 +1397,7 @@ def ParseTree(joint, tree):
       newtree[item] = {}
     tree = newtree
   # Walk the tree, create items.
-  for item, subs in tree.iteritems():
+  for item, subs in tree.items():
     if isinstance(item, (CommandDefinition, PipeDefinition)):
       # Command or pipe item.
       if joint.root == joint:
